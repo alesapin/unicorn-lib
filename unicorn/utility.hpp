@@ -1,5 +1,6 @@
 #pragma once
 
+
 // Compilation environment control macros
 
 #ifdef __APPLE__
@@ -65,6 +66,7 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <sys/sysmacros.h>
 
 // Preprocessor macros
 
