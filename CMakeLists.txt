@@ -1,9 +1,13 @@
 cmake_minimum_required(VERSION 3.8.0)
 project(Unicorn LANGUAGES CXX)
 
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/")
+set(CMAKE_CONTRIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/contrib)
+
 include(FindZLIB)
 include(FindIconv)
 include(FindThreads)
+include(cmake/find_pcre2.cmake)
 
 add_library(Unicorn
     unicorn/character.cpp
@@ -32,28 +36,19 @@ add_library(Unicorn
     unicorn/ucd-script-tables.cpp
     unicorn/utf.cpp)
 add_library(RS::Unicorn ALIAS Unicorn)
+
 target_include_directories(Unicorn PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:include>)
+
 target_compile_features(Unicorn PUBLIC cxx_std_17)
-target_link_libraries(Unicorn PUBLIC
-    pcre2-8
-    ZLIB::ZLIB
-    Iconv::Iconv
-    Threads::Threads)
 
-install(TARGETS Unicorn EXPORT UnicornTargets
-    ARCHIVE DESTINATION lib
-    LIBRARY DESTINATION lib)
-
-export(EXPORT UnicornTargets NAMESPACE RS::)
-file(COPY scripts/UnicornConfig.cmake DESTINATION .)
-
-install(EXPORT UnicornTargets DESTINATION lib/cmake/unicorn
-    NAMESPACE RS::)
-install(FILES scripts/UnicornConfig.cmake DESTINATION lib/cmake/unicorn)
-install(DIRECTORY unicorn DESTINATION include
-    FILES_MATCHING PATTERN *.hpp)
+target_link_libraries(Unicorn
+    PRIVATE
+        ${PCRE2_LIB}
+        ZLIB::ZLIB
+        Iconv::Iconv
+        Threads::Threads)
 
 include(CTest)
 if(BUILD_TESTING)
