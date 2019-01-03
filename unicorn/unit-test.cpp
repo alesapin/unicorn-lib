@@ -67,6 +67,7 @@ extern void test_unicorn_path_name_properties();
 extern void test_unicorn_path_name_breakdown();
 extern void test_unicorn_path_name_combination();
 extern void test_unicorn_path_name_manipulation();
+extern void test_unicorn_path_name_comparison();
 extern void test_unicorn_path_resolution();
 extern void test_unicorn_path_directory_iterators();
 extern void test_unicorn_path_file_system_queries();
@@ -77,7 +78,7 @@ extern void test_unicorn_path_io();
 extern void test_unicorn_path_links();
 extern void test_unicorn_path_metadata();
 extern void test_unicorn_regex_version();
-extern void test_unicorn_regex_basic_matching();
+extern void test_unicorn_regex_match();
 extern void test_unicorn_regex_compile_flags();
 extern void test_unicorn_regex_runtime_flags();
 extern void test_unicorn_regex_grep();
@@ -214,6 +215,7 @@ int main() {
         { "unicorn/path/name-breakdown", test_unicorn_path_name_breakdown },
         { "unicorn/path/name-combination", test_unicorn_path_name_combination },
         { "unicorn/path/name-manipulation", test_unicorn_path_name_manipulation },
+        { "unicorn/path/name-comparison", test_unicorn_path_name_comparison },
         { "unicorn/path/resolution", test_unicorn_path_resolution },
         { "unicorn/path/directory-iterators", test_unicorn_path_directory_iterators },
         { "unicorn/path/file-system-queries", test_unicorn_path_file_system_queries },
@@ -224,7 +226,7 @@ int main() {
         { "unicorn/path/links", test_unicorn_path_links },
         { "unicorn/path/metadata", test_unicorn_path_metadata },
         { "unicorn/regex/version", test_unicorn_regex_version },
-        { "unicorn/regex/basic-matching", test_unicorn_regex_basic_matching },
+        { "unicorn/regex/match", test_unicorn_regex_match },
         { "unicorn/regex/compile-flags", test_unicorn_regex_compile_flags },
         { "unicorn/regex/runtime-flags", test_unicorn_regex_runtime_flags },
         { "unicorn/regex/grep", test_unicorn_regex_grep },

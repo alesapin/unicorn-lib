@@ -190,11 +190,25 @@ namespace RS {
     template <typename EnumType>
     std::vector<EnumType> enum_values() {
         static const std::vector<EnumType> enum_vec = [] {
-            using U = std::underlying_type_t<EnumType>;
-            U base = U(EnumType::RS_enum_begin), size = U(EnumType::RS_enum_end) - base;
+            using int_type = std::underlying_type_t<EnumType>;
+            int_type base = int_type(EnumType::RS_enum_begin), size = int_type(EnumType::RS_enum_end) - base;
             std::vector<EnumType> vec(size, {});
-            for (U i = 0; i < size; ++i)
+            for (int_type i = 0; i < size; ++i)
                 vec[i] = EnumType(base + i);
+            return vec;
+        }();
+        return enum_vec;
+    }
+
+    template <typename EnumType>
+    std::vector<EnumType> enum_nonzero_values() {
+        static const std::vector<EnumType> enum_vec = [] {
+            using int_type = std::underlying_type_t<EnumType>;
+            int_type base = int_type(EnumType::RS_enum_begin), size = int_type(EnumType::RS_enum_end) - base;
+            std::vector<EnumType> vec;
+            for (int_type i = 0; i < size; ++i)
+                if (base + i != 0)
+                    vec.push_back(EnumType(base + i));
             return vec;
         }();
         return enum_vec;
@@ -235,6 +249,8 @@ namespace RS {
         constexpr bool big_endian_target = true;
         constexpr bool little_endian_target = false;
     #endif
+
+    template <typename T> constexpr bool dependent_false = false;
 
     // Error handling
 
@@ -777,34 +793,56 @@ namespace RS {
 
     // Scope guards
 
-    template <typename F, char Mode>
+    enum class Scope { exit, fail, success };
+
+    template <typename F, Scope S>
     class BasicScopeGuard {
     public:
+        BasicScopeGuard() = default;
         BasicScopeGuard(F&& f) try:
             func(std::forward<F>(f)), inflight(std::uncaught_exceptions()) {}
             catch (...) {
-                if constexpr (Mode != 's')
+                if constexpr (S != Scope::success)
                     try { f(); } catch (...) {}
                 throw;
             }
+        BasicScopeGuard(const BasicScopeGuard&) = delete;
         BasicScopeGuard(BasicScopeGuard&& sg) noexcept:
             func(std::move(sg.func)), inflight(std::exchange(sg.inflight, -1)) {}
-        ~BasicScopeGuard() noexcept {
-            if (inflight >= 0 && (Mode == 'e' || (Mode == 'f') == (std::uncaught_exceptions() > inflight)))
-                try { func(); } catch (...) {}
-        }
-        BasicScopeGuard(const BasicScopeGuard&) = delete;
+        ~BasicScopeGuard() noexcept { close(); }
         BasicScopeGuard& operator=(const BasicScopeGuard&) = delete;
-        BasicScopeGuard& operator=(BasicScopeGuard&&) = delete;
+        BasicScopeGuard& operator=(F&& f) {
+            close();
+            func = std::forward<F>(f);
+            inflight = std::uncaught_exceptions();
+            return *this;
+        }
+        BasicScopeGuard& operator=(BasicScopeGuard&& sg) noexcept {
+            if (&sg != this) {
+                close();
+                func = std::move(sg.func);
+                inflight = std::exchange(sg.inflight, -1);
+            }
+            return *this;
+        }
         void release() noexcept { inflight = -1; }
     private:
         F func;
-        int inflight;
+        int inflight = -1;
+        void close() noexcept {
+            if (inflight >= 0 && (S == Scope::exit || (S == Scope::fail) == (std::uncaught_exceptions() > inflight)))
+                try { func(); } catch (...) {}
+            inflight = -1;
+        }
     };
 
-    template <typename F> inline BasicScopeGuard<F, 'e'> scope_exit(F&& f) { return BasicScopeGuard<F, 'e'>(std::forward<F>(f)); }
-    template <typename F> inline BasicScopeGuard<F, 'f'> scope_fail(F&& f) { return BasicScopeGuard<F, 'f'>(std::forward<F>(f)); }
-    template <typename F> inline BasicScopeGuard<F, 's'> scope_success(F&& f) { return BasicScopeGuard<F, 's'>(std::forward<F>(f)); }
+    using ScopeExit = BasicScopeGuard<std::function<void()>, Scope::exit>;
+    using ScopeFail = BasicScopeGuard<std::function<void()>, Scope::fail>;
+    using ScopeSuccess = BasicScopeGuard<std::function<void()>, Scope::success>;
+
+    template <typename F> inline BasicScopeGuard<F, Scope::exit> scope_exit(F&& f) { return BasicScopeGuard<F, Scope::exit>(std::forward<F>(f)); }
+    template <typename F> inline BasicScopeGuard<F, Scope::fail> scope_fail(F&& f) { return BasicScopeGuard<F, Scope::fail>(std::forward<F>(f)); }
+    template <typename F> inline BasicScopeGuard<F, Scope::success> scope_success(F&& f) { return BasicScopeGuard<F, Scope::success>(std::forward<F>(f)); }
 
     template <typename T> inline auto make_lock(T& t) { return std::unique_lock<T>(t); }
     template <typename T> inline auto make_shared_lock(T& t) { return std::shared_lock<T>(t); }
