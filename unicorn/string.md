@@ -155,7 +155,7 @@ These return true if the string starts or ends with the specified substring.
 
 ## String comparison ##
 
-* `struct` **`Strcmp`
+* `struct` **`Strcmp`**
     * `static constexpr uint32_t Strcmp::`**`equal`**
     * `static constexpr uint32_t Strcmp::`**`less`**
     * `static constexpr uint32_t Strcmp::`**`triple`**
@@ -179,21 +179,19 @@ comparisons, while calling `str_casefold()` and saving the case folded form of
 the string will be more efficient if the same strings are going to be compared
 frequently.
 
-If the `fallback` flag is combined with `icase`, a case sensitive comparison
-will be done if no differences are found in the case insensitive comparison;
-by default, in the absence of `fallback`, strings that differ only in case
-will be treated as equal. The `fallback` flag may not be used without `icase`.
-
 If the `natural` flag is used, this attempts to perform a "natural" (human
 friendly) comparison between two strings. It treats numbers (currently only
 ASCII digits are recognised) as discrete string elements to be sorted
 numerically (e.g. `"abc99"` will sort before `"abc100"`; leading zeros are not
-significant), and ignores case and punctuation (significant characters are
-defined as general categories `L` [letters], `M` [marks], `N` [numbers], and
-`S` [symbols]). If two strings are equal according to these criteria, but are
-not exactly byte for byte identical, a fallback to a simple case sensitive
-lexicographical comparison is used. The `natural` and `icase` flags may not be
-combined.
+significant), and ignores punctuation (significant characters are defined as
+general categories `L` [letters], `M` [marks], `N` [numbers], and `S`
+[symbols]). Natural comparison is always case insensitive; the presence or
+absence of the `icase` flag has no effect.
+
+If the `fallback` flag is combined with `icase` or `natural`, a full case and
+punctuation sensitive comparison will be done if no differences are found in
+the case insensitive comparison. The `fallback` flag has no effect if used
+without `icase` or `natural`.
 
 ## Other string algorithms ##
 
@@ -643,9 +641,9 @@ Flags recognised by `str_escape()` and related functions.
 These replace some characters in the string with percent encoding. These are
 similar to the correspondingly named JavaScript functions, except that they
 follow the slightly more stringent rules from [RFC
-3986](https://www.ietf.org/rfc/rfc3986.txt). Characters outside the printable
-ASCII range will always be encoded; ASCII alphanumeric characters will never
-be encoded. ASCII punctuation is selectively encoded:
+3986](https://www.ietf.org/rfc/rfc3986.txt). Characters outside the graphic
+ASCII range (`0x21-0x7e`) will always be encoded; ASCII alphanumeric
+characters will never be encoded. ASCII punctuation is selectively encoded:
 
 | Characters            | Behaviour
 | ----------            | ---------

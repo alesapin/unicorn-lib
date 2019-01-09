@@ -23,7 +23,7 @@ using namespace std::literals;
 
 namespace {
 
-    RS_ENUM(FooEnum, int16_t, 1, alpha, bravo, charlie);
+    RS_ENUM(FooEnum, int16_t, 0, alpha, bravo, charlie);
     RS_ENUM_CLASS(BarEnum, int32_t, 1, alpha, bravo, charlie);
 
     Ustring make_str(std::nullptr_t) { return "null"; }
@@ -67,27 +67,30 @@ void test_unicorn_utility_preprocessor_macros() {
     TEST_EQUAL(sizeof(FooEnum), 2);
     TEST_EQUAL(sizeof(BarEnum), 4);
 
-    TEST_EQUAL(int(alpha), 1);
-    TEST_EQUAL(int(bravo), 2);
-    TEST_EQUAL(int(charlie), 3);
+    TEST_EQUAL(int(alpha), 0);
+    TEST_EQUAL(int(bravo), 1);
+    TEST_EQUAL(int(charlie), 2);
 
     TEST_EQUAL(make_str(alpha), "alpha");
     TEST_EQUAL(make_str(bravo), "bravo");
     TEST_EQUAL(make_str(charlie), "charlie");
-    TEST_EQUAL(make_str(FooEnum(0)), "0");
+    TEST_EQUAL(make_str(FooEnum(0)), "alpha");
     TEST_EQUAL(make_str(FooEnum(4)), "4");
     TEST_EQUAL(make_str(FooEnum(99)), "99");
     TEST_EQUAL(make_str(nullptr), "null");
 
-    TEST(! enum_is_valid(FooEnum(0)));
+    TEST(! enum_is_valid(FooEnum(-1)));
+    TEST(enum_is_valid(FooEnum(0)));
     TEST(enum_is_valid(FooEnum(1)));
     TEST(enum_is_valid(FooEnum(2)));
-    TEST(enum_is_valid(FooEnum(3)));
-    TEST(! enum_is_valid(FooEnum(4)));
+    TEST(! enum_is_valid(FooEnum(3)));
 
     TRY(vf = enum_values<FooEnum>());
     TEST_EQUAL(vf.size(), 3);
     TEST_EQUAL(make_str(vf), "[alpha,bravo,charlie]");
+    TRY(vf = enum_nonzero_values<FooEnum>());
+    TEST_EQUAL(vf.size(), 2);
+    TEST_EQUAL(make_str(vf), "[bravo,charlie]");
 
     TEST_EQUAL(int(BarEnum::alpha), 1);
     TEST_EQUAL(int(BarEnum::bravo), 2);
@@ -107,6 +110,10 @@ void test_unicorn_utility_preprocessor_macros() {
     TEST(! enum_is_valid(BarEnum(4)));
 
     TRY(vb = enum_values<BarEnum>());
+    TEST_EQUAL(vb.size(), 3);
+    TEST_EQUAL(make_str(vb), "[BarEnum::alpha,BarEnum::bravo,BarEnum::charlie]");
+
+    TRY(vb = enum_nonzero_values<BarEnum>());
     TEST_EQUAL(vb.size(), 3);
     TEST_EQUAL(make_str(vb), "[BarEnum::alpha,BarEnum::bravo,BarEnum::charlie]");
 
@@ -638,33 +645,57 @@ void test_unicorn_utility_scope_guards() {
     int n = 0;
     {
         n = 1;
-        auto x = scope_exit([&] { n = 2; });
+        ScopeExit guard;
+        TRY(guard = [&] { n = 2; });
         TEST_EQUAL(n, 1);
     }
     TEST_EQUAL(n, 2);
-
     n = 0;
     try {
         n = 1;
-        auto x = scope_exit([&] { n = 2; });
+        ScopeExit guard;
+        TRY(guard = [&] { n = 2; });
         TEST_EQUAL(n, 1);
         throw std::runtime_error("fail");
     }
     catch (...) {}
     TEST_EQUAL(n, 2);
-
     n = 0;
     {
         n = 1;
-        auto x = scope_success([&] { n = 2; });
+        ScopeExit guard;
+        TRY(guard = [&] { n = 2; });
         TEST_EQUAL(n, 1);
+        TRY(guard = [&] { n = 3; });
+        TEST_EQUAL(n, 2);
+    }
+    TEST_EQUAL(n, 3);
+    n = 0;
+    {
+        n = 1;
+        ScopeExit guard1, guard2;
+        TRY(guard1 = [&] { n = 2; });
+        TEST_EQUAL(n, 1);
+        TRY(guard2 = [&] { n = 3; });
+        TEST_EQUAL(n, 1);
+        TRY(guard2 = std::move(guard1));
+        TEST_EQUAL(n, 3);
     }
     TEST_EQUAL(n, 2);
 
     n = 0;
+    {
+        n = 1;
+        ScopeSuccess guard;
+        TRY(guard = [&] { n = 2; });
+        TEST_EQUAL(n, 1);
+    }
+    TEST_EQUAL(n, 2);
+    n = 0;
     try {
         n = 1;
-        auto x = scope_success([&] { n = 2; });
+        ScopeSuccess guard;
+        TRY(guard = [&] { n = 2; });
         TEST_EQUAL(n, 1);
         throw std::runtime_error("fail");
     }
@@ -674,15 +705,67 @@ void test_unicorn_utility_scope_guards() {
     n = 0;
     {
         n = 1;
-        auto x = scope_fail([&] { n = 2; });
+        ScopeFail guard;
+        TRY(guard = [&] { n = 2; });
         TEST_EQUAL(n, 1);
     }
     TEST_EQUAL(n, 1);
-
     n = 0;
     try {
         n = 1;
-        auto x = scope_fail([&] { n = 2; });
+        ScopeFail guard;
+        TRY(guard = [&] { n = 2; });
+        TEST_EQUAL(n, 1);
+        throw std::runtime_error("fail");
+    }
+    catch (...) {}
+    TEST_EQUAL(n, 2);
+
+    n = 0;
+    {
+        n = 1;
+        auto guard = scope_exit([&] { n = 2; });
+        TEST_EQUAL(n, 1);
+    }
+    TEST_EQUAL(n, 2);
+    n = 0;
+    try {
+        n = 1;
+        auto guard = scope_exit([&] { n = 2; });
+        TEST_EQUAL(n, 1);
+        throw std::runtime_error("fail");
+    }
+    catch (...) {}
+    TEST_EQUAL(n, 2);
+
+    n = 0;
+    {
+        n = 1;
+        auto guard = scope_success([&] { n = 2; });
+        TEST_EQUAL(n, 1);
+    }
+    TEST_EQUAL(n, 2);
+    n = 0;
+    try {
+        n = 1;
+        auto guard = scope_success([&] { n = 2; });
+        TEST_EQUAL(n, 1);
+        throw std::runtime_error("fail");
+    }
+    catch (...) {}
+    TEST_EQUAL(n, 1);
+
+    n = 0;
+    {
+        n = 1;
+        auto guard = scope_fail([&] { n = 2; });
+        TEST_EQUAL(n, 1);
+    }
+    TEST_EQUAL(n, 1);
+    n = 0;
+    try {
+        n = 1;
+        auto guard = scope_fail([&] { n = 2; });
         TEST_EQUAL(n, 1);
         throw std::runtime_error("fail");
     }
