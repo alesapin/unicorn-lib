@@ -50,8 +50,8 @@ target_link_libraries(Unicorn
         Iconv::Iconv
         Threads::Threads)
 
-include(CTest)
-if(BUILD_TESTING)
+if(UNICORN_BUILD_TESTING)
+    include(CTest)
     add_executable(unicorn_tests
         unicorn/character-test.cpp
         unicorn/environment-test.cpp
