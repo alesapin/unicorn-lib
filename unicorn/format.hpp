@@ -11,6 +11,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -25,9 +26,9 @@ namespace RS::Unicorn {
 
     public:
 
-        static constexpr uint64_t left      = 1ull << 52;           // (<) Left align                  all  --    --   --     --    --      --
-        static constexpr uint64_t centre    = 1ull << 53;           // (=) Centre align                all  --    --   --     --    --      --
-        static constexpr uint64_t right     = 1ull << 54;           // (>) Right align                 all  --    --   --     --    --      --
+        static constexpr uint64_t left      = setbit<52>;           // (<) Left align                  all  --    --   --     --    --      --
+        static constexpr uint64_t centre    = setbit<53>;           // (=) Centre align                all  --    --   --     --    --      --
+        static constexpr uint64_t right     = setbit<54>;           // (>) Right align                 all  --    --   --     --    --      --
         static constexpr uint64_t upper     = letter_to_mask('U');  // Convert to upper case           all  --    --   --     --    --      --
         static constexpr uint64_t lower     = letter_to_mask('L');  // Convert to lower case           all  --    --   --     --    --      --
         static constexpr uint64_t title     = letter_to_mask('T');  // Convert to title case           all  --    --   --     --    --      --
@@ -87,8 +88,7 @@ namespace RS::Unicorn {
         // Reserved global flags
 
         constexpr uint64_t format_length_flags = Length::characters | Length::graphemes | Length::narrow | Length::wide;
-        constexpr uint64_t top_level_format_flags = format_length_flags | Format::left | Format::centre | Format::right | Format::lower | Format::title | Format::upper;
-        constexpr uint64_t global_format_flags = format_length_flags | top_level_format_flags;
+        constexpr uint64_t global_format_flags = format_length_flags | Format::left | Format::centre | Format::right | Format::lower | Format::title | Format::upper;
 
         // Formatting for specific types
 
@@ -122,7 +122,7 @@ namespace RS::Unicorn {
             static constexpr auto sign_flags = Format::sign | Format::signz;
             if ((flags & float_flags) && ! (flags & int_flags))
                 return format_float(t, flags, prec);
-            if (ibits(flags & int_flags) > 1 || ibits(flags & sign_flags) > 1)
+            if (popcount(flags & int_flags) > 1 || popcount(flags & sign_flags) > 1)
                 throw std::invalid_argument("Inconsistent integer formatting flags");
             char sign = 0;
             if (t > static_cast<T>(0)) {
@@ -162,6 +162,8 @@ namespace RS::Unicorn {
     Ustring format_type(const Ustring& t, uint64_t flags, int prec);
     Ustring format_type(std::chrono::system_clock::time_point t, uint64_t flags, int prec);
     template <typename C> inline Ustring format_type(const std::basic_string<C>& t, uint64_t flags, int prec) { return format_type(to_utf8(t), flags, prec); }
+    template <typename C> inline Ustring format_type(const std::basic_string_view<C>& t, uint64_t flags, int prec)
+        { return format_type(to_utf8(std::basic_string<C>(t)), flags, prec); }
     template <typename C> inline Ustring format_type(C* t, uint64_t flags, int prec) { return format_type(cstr(t), flags, prec); }
     template <typename C> inline Ustring format_type(const C* t, uint64_t flags, int prec) { return format_type(cstr(t), flags, prec); }
     template <typename R, typename P> inline Ustring format_type(std::chrono::duration<R, P> t, uint64_t /*flags*/, int prec) { return format_time(t, prec); }

@@ -7,11 +7,17 @@
 #include <cstddef>
 #include <cstring>
 #include <functional>
+#include <istream>
 #include <map>
+#include <memory>
+#include <optional>
+#include <ostream>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -24,7 +30,9 @@ using namespace std::literals;
 namespace {
 
     RS_ENUM(FooEnum, int16_t, 0, alpha, bravo, charlie);
-    RS_ENUM_CLASS(BarEnum, int32_t, 1, alpha, bravo, charlie);
+    RS_ENUM(BarEnum, int16_t, 0, delta, echo, foxtrot);
+    RS_ENUM_CLASS(ZapEnum, int32_t, 1, golf, hotel, india);
+    RS_ENUM_CLASS(ThogEnum, int32_t, 1, golf, hotel, india);
 
     Ustring make_str(std::nullptr_t) { return "null"; }
 
@@ -52,20 +60,44 @@ namespace {
     MAKE_STR_FOR_CONTAINER(std::set)
     MAKE_STR_FOR_CONTAINER(std::vector)
 
+    class Base {
+    public:
+        virtual ~Base() noexcept {}
+        virtual int get() const = 0;
+    };
+
+    class Derived1: public Base {
+    public:
+        virtual int get() const { return 1; }
+    };
+
+    class Derived2: public Base {
+    public:
+        virtual int get() const { return 2; }
+    };
+
+    enum class Mask { z = 0, a = 1, b = 2 };
+    RS_BITMASK_OPERATORS(Mask);
+
+    struct Wrap {
+        enum class mask { z = 0, a = 1, b = 2 };
+    };
+    RS_BITMASK_OPERATORS(Wrap::mask);
+
 }
 
 void test_unicorn_utility_preprocessor_macros() {
 
     FooEnum f = {};
-    BarEnum b = {};
+    ZapEnum z = {};
     std::vector<FooEnum> vf;
-    std::vector<BarEnum> vb;
+    std::vector<ZapEnum> vz;
 
     TEST_TYPE(std::underlying_type_t<FooEnum>, int16_t);
-    TEST_TYPE(std::underlying_type_t<BarEnum>, int32_t);
+    TEST_TYPE(std::underlying_type_t<ZapEnum>, int32_t);
 
     TEST_EQUAL(sizeof(FooEnum), 2);
-    TEST_EQUAL(sizeof(BarEnum), 4);
+    TEST_EQUAL(sizeof(ZapEnum), 4);
 
     TEST_EQUAL(int(alpha), 0);
     TEST_EQUAL(int(bravo), 1);
@@ -88,52 +120,61 @@ void test_unicorn_utility_preprocessor_macros() {
     TRY(vf = enum_values<FooEnum>());
     TEST_EQUAL(vf.size(), 3);
     TEST_EQUAL(make_str(vf), "[alpha,bravo,charlie]");
-    TRY(vf = enum_nonzero_values<FooEnum>());
-    TEST_EQUAL(vf.size(), 2);
-    TEST_EQUAL(make_str(vf), "[bravo,charlie]");
 
-    TEST_EQUAL(int(BarEnum::alpha), 1);
-    TEST_EQUAL(int(BarEnum::bravo), 2);
-    TEST_EQUAL(int(BarEnum::charlie), 3);
+    TEST_EQUAL(int(ZapEnum::golf), 1);
+    TEST_EQUAL(int(ZapEnum::hotel), 2);
+    TEST_EQUAL(int(ZapEnum::india), 3);
 
-    TEST_EQUAL(make_str(BarEnum::alpha), "BarEnum::alpha");
-    TEST_EQUAL(make_str(BarEnum::bravo), "BarEnum::bravo");
-    TEST_EQUAL(make_str(BarEnum::charlie), "BarEnum::charlie");
-    TEST_EQUAL(make_str(BarEnum(0)), "0");
-    TEST_EQUAL(make_str(BarEnum(4)), "4");
-    TEST_EQUAL(make_str(BarEnum(99)), "99");
+    TEST_EQUAL(make_str(ZapEnum::golf), "ZapEnum::golf");
+    TEST_EQUAL(make_str(ZapEnum::hotel), "ZapEnum::hotel");
+    TEST_EQUAL(make_str(ZapEnum::india), "ZapEnum::india");
+    TEST_EQUAL(make_str(ZapEnum(0)), "0");
+    TEST_EQUAL(make_str(ZapEnum(4)), "4");
+    TEST_EQUAL(make_str(ZapEnum(99)), "99");
 
-    TEST(! enum_is_valid(BarEnum(0)));
-    TEST(enum_is_valid(BarEnum(1)));
-    TEST(enum_is_valid(BarEnum(2)));
-    TEST(enum_is_valid(BarEnum(3)));
-    TEST(! enum_is_valid(BarEnum(4)));
+    TEST(! enum_is_valid(ZapEnum(0)));
+    TEST(enum_is_valid(ZapEnum(1)));
+    TEST(enum_is_valid(ZapEnum(2)));
+    TEST(enum_is_valid(ZapEnum(3)));
+    TEST(! enum_is_valid(ZapEnum(4)));
 
-    TRY(vb = enum_values<BarEnum>());
-    TEST_EQUAL(vb.size(), 3);
-    TEST_EQUAL(make_str(vb), "[BarEnum::alpha,BarEnum::bravo,BarEnum::charlie]");
+    TRY(vz = enum_values<ZapEnum>());
+    TEST_EQUAL(vz.size(), 3);
+    TEST_EQUAL(make_str(vz), "[ZapEnum::golf,ZapEnum::hotel,ZapEnum::india]");
 
-    TRY(vb = enum_nonzero_values<BarEnum>());
-    TEST_EQUAL(vb.size(), 3);
-    TEST_EQUAL(make_str(vb), "[BarEnum::alpha,BarEnum::bravo,BarEnum::charlie]");
-
-    TEST(str_to_enum("alpha", f));    TEST_EQUAL(f, alpha);
-    TEST(str_to_enum("bravo", f));    TEST_EQUAL(f, bravo);
-    TEST(str_to_enum("charlie", f));  TEST_EQUAL(f, charlie);
-    TEST(! str_to_enum("delta", f));
+    TEST(str_to_enum("alpha", f));             TEST_EQUAL(f, alpha);
+    TEST(str_to_enum("bravo", f));             TEST_EQUAL(f, bravo);
+    TEST(str_to_enum("charlie", f));           TEST_EQUAL(f, charlie);
+    TEST(! str_to_enum("zulu", f));
     TEST(str_to_enum("FooEnum::alpha", f));    TEST_EQUAL(f, alpha);
     TEST(str_to_enum("FooEnum::bravo", f));    TEST_EQUAL(f, bravo);
     TEST(str_to_enum("FooEnum::charlie", f));  TEST_EQUAL(f, charlie);
-    TEST(! str_to_enum("FooEnum::delta", f));
+    TEST(! str_to_enum("FooEnum::zulu", f));
 
-    TEST(str_to_enum("alpha", b));    TEST_EQUAL(b, BarEnum::alpha);
-    TEST(str_to_enum("bravo", b));    TEST_EQUAL(b, BarEnum::bravo);
-    TEST(str_to_enum("charlie", b));  TEST_EQUAL(b, BarEnum::charlie);
-    TEST(! str_to_enum("delta", b));
-    TEST(str_to_enum("BarEnum::alpha", b));    TEST_EQUAL(b, BarEnum::alpha);
-    TEST(str_to_enum("BarEnum::bravo", b));    TEST_EQUAL(b, BarEnum::bravo);
-    TEST(str_to_enum("BarEnum::charlie", b));  TEST_EQUAL(b, BarEnum::charlie);
-    TEST(! str_to_enum("BarEnum::delta", b));
+    TEST(str_to_enum("golf", z));             TEST_EQUAL(z, ZapEnum::golf);
+    TEST(str_to_enum("hotel", z));            TEST_EQUAL(z, ZapEnum::hotel);
+    TEST(str_to_enum("india", z));            TEST_EQUAL(z, ZapEnum::india);
+    TEST(! str_to_enum("zulu", z));
+    TEST(str_to_enum("ZapEnum::golf", z));    TEST_EQUAL(z, ZapEnum::golf);
+    TEST(str_to_enum("ZapEnum::hotel", z));   TEST_EQUAL(z, ZapEnum::hotel);
+    TEST(str_to_enum("ZapEnum::india", z));   TEST_EQUAL(z, ZapEnum::india);
+    TEST(! str_to_enum("ZapEnum::zulu", z));
+
+    Mask m1, m2, m3;
+
+    m1 = Mask::a;  TEST_EQUAL(int(m1), 1);
+    m2 = Mask::b;  TEST_EQUAL(int(m2), 2);
+    m3 = m1 & m2;  TEST_EQUAL(int(m3), 0);
+    m3 = m1 | m2;  TEST_EQUAL(int(m3), 3);
+    m3 = m1 ^ m2;  TEST_EQUAL(int(m3), 3);
+
+    Wrap::mask w1, w2, w3;
+
+    w1 = Wrap::mask::a;  TEST_EQUAL(int(w1), 1);
+    w2 = Wrap::mask::b;  TEST_EQUAL(int(w2), 2);
+    w3 = w1 & w2;        TEST_EQUAL(int(w3), 0);
+    w3 = w1 | w2;        TEST_EQUAL(int(w3), 3);
+    w3 = w1 ^ w2;        TEST_EQUAL(int(w3), 3);
 
 }
 
@@ -146,6 +187,19 @@ void test_unicorn_utility_constants() {
     TEST_COMPARE(little_endian_target, !=, big_endian_target);
     TEST_EQUAL(bool(u8_2[0]), little_endian_target);
     TEST_EQUAL(bool(u8_2[1]), big_endian_target);
+
+    static constexpr auto b0 = setbit<0>;    TEST_TYPE_OF(b0, uint8_t);    TEST_EQUAL(b0, 1);
+    static constexpr auto b1 = setbit<1>;    TEST_TYPE_OF(b1, uint8_t);    TEST_EQUAL(b1, 2);
+    static constexpr auto b7 = setbit<7>;    TEST_TYPE_OF(b7, uint8_t);    TEST_EQUAL(b7, 0x80);
+    static constexpr auto b8 = setbit<8>;    TEST_TYPE_OF(b8, uint16_t);   TEST_EQUAL(b8, 0x100);
+    static constexpr auto b9 = setbit<9>;    TEST_TYPE_OF(b9, uint16_t);   TEST_EQUAL(b9, 0x200);
+    static constexpr auto b15 = setbit<15>;  TEST_TYPE_OF(b15, uint16_t);  TEST_EQUAL(b15, 0x8000);
+    static constexpr auto b16 = setbit<16>;  TEST_TYPE_OF(b16, uint32_t);  TEST_EQUAL(b16, 0x1'0000ul);
+    static constexpr auto b17 = setbit<17>;  TEST_TYPE_OF(b17, uint32_t);  TEST_EQUAL(b17, 0x2'0000ul);
+    static constexpr auto b31 = setbit<31>;  TEST_TYPE_OF(b31, uint32_t);  TEST_EQUAL(b31, 0x8000'0000ul);
+    static constexpr auto b32 = setbit<32>;  TEST_TYPE_OF(b32, uint64_t);  TEST_EQUAL(b32, 0x1'0000'0000ull);
+    static constexpr auto b33 = setbit<33>;  TEST_TYPE_OF(b33, uint64_t);  TEST_EQUAL(b33, 0x2'0000'0000ull);
+    static constexpr auto b63 = setbit<63>;  TEST_TYPE_OF(b63, uint64_t);  TEST_EQUAL(b63, 0x8000'0000'0000'0000ull);
 
 }
 
@@ -269,39 +323,24 @@ void test_unicorn_utility_arithmetic_functions() {
     TEST_EQUAL(as_unsigned(s64), 18'446'744'073'709'551'574ull);
     TEST_EQUAL(as_unsigned(u64), 42);
 
-    TEST_EQUAL(clamp(1, 2, 4), 2);
-    TEST_EQUAL(clamp(2, 2, 4), 2);
-    TEST_EQUAL(clamp(3, 2, 4), 3);
-    TEST_EQUAL(clamp(4, 2, 4), 4);
-    TEST_EQUAL(clamp(5, 2, 4), 4);
-    TEST_EQUAL(clamp(1.0, 2, 4), 2);
-    TEST_EQUAL(clamp(1.5, 2, 4), 2);
-    TEST_EQUAL(clamp(2.0, 2, 4), 2);
-    TEST_EQUAL(clamp(2.5, 2, 4), 2.5);
-    TEST_EQUAL(clamp(3.0, 2, 4), 3);
-    TEST_EQUAL(clamp(3.5, 2, 4), 3.5);
-    TEST_EQUAL(clamp(4.0, 2, 4), 4);
-    TEST_EQUAL(clamp(4.5, 2, 4), 4);
-    TEST_EQUAL(clamp(5.0, 2, 4), 4);
-
-    TEST_EQUAL(ibits(0), 0);
-    TEST_EQUAL(ibits(1), 1);
-    TEST_EQUAL(ibits(2), 1);
-    TEST_EQUAL(ibits(3), 2);
-    TEST_EQUAL(ibits(4), 1);
-    TEST_EQUAL(ibits(5), 2);
-    TEST_EQUAL(ibits(6), 2);
-    TEST_EQUAL(ibits(7), 3);
-    TEST_EQUAL(ibits(8), 1);
-    TEST_EQUAL(ibits(9), 2);
-    TEST_EQUAL(ibits(10), 2);
-    TEST_EQUAL(ibits(0x7fff), 15);
-    TEST_EQUAL(ibits(0x8000), 1);
-    TEST_EQUAL(ibits(0x8888), 4);
-    TEST_EQUAL(ibits(0xffff), 16);
-    TEST_EQUAL(ibits(0x7fffffffffffffffull), 63);
-    TEST_EQUAL(ibits(0x8000000000000000ull), 1);
-    TEST_EQUAL(ibits(0xffffffffffffffffull), 64);
+    TEST_EQUAL(popcount(0), 0);
+    TEST_EQUAL(popcount(1), 1);
+    TEST_EQUAL(popcount(2), 1);
+    TEST_EQUAL(popcount(3), 2);
+    TEST_EQUAL(popcount(4), 1);
+    TEST_EQUAL(popcount(5), 2);
+    TEST_EQUAL(popcount(6), 2);
+    TEST_EQUAL(popcount(7), 3);
+    TEST_EQUAL(popcount(8), 1);
+    TEST_EQUAL(popcount(9), 2);
+    TEST_EQUAL(popcount(10), 2);
+    TEST_EQUAL(popcount(0x7fff), 15);
+    TEST_EQUAL(popcount(0x8000), 1);
+    TEST_EQUAL(popcount(0x8888), 4);
+    TEST_EQUAL(popcount(0xffff), 16);
+    TEST_EQUAL(popcount(0x7fffffffffffffffull), 63);
+    TEST_EQUAL(popcount(0x8000000000000000ull), 1);
+    TEST_EQUAL(popcount(0xffffffffffffffffull), 64);
 
     TEST_EQUAL(ifloor2(0), 0);
     TEST_EQUAL(ifloor2(1), 1);
@@ -637,6 +676,19 @@ void test_unicorn_utility_range_types() {
     TEST_EQUAL(range_count("Hello"), 6);
     TEST(range_empty(""s));
     TEST(! range_empty("Hello"s));
+
+    Irange<Ustring::iterator> r;
+    Irange<Ustring::const_iterator> cr;
+    Ustring s = "Hello", t;
+
+    TRY((r = {s.begin(), s.end()}));
+    TEST_EQUAL(r.size(), 5);
+    TRY(std::copy(r.begin(), r.end(), overwrite(t)));
+    TEST_EQUAL(t, "Hello");
+    TRY(cr = r);
+    TEST_EQUAL(cr.size(), 5);
+    TRY(std::copy(cr.begin(), cr.end(), overwrite(t)));
+    TEST_EQUAL(t, "Hello");
 
 }
 
@@ -1264,9 +1316,6 @@ void test_unicorn_utility_string_functions() {
     TEST_EQUAL(format_list(iv, "<", "/", ">"), "<>");
     TEST_EQUAL(format_list(sv, "<", "/", ">"), "<>");
     TEST_EQUAL(format_map(ism, "<", "=", "/", ">"), "<>");
-    TEST_EQUAL(to_str(iv), "[]");
-    TEST_EQUAL(to_str(sv), "[]");
-    TEST_EQUAL(to_str(ism), "{}");
 
     iv.push_back(1);
     sv.push_back("hello");
@@ -1278,9 +1327,6 @@ void test_unicorn_utility_string_functions() {
     TEST_EQUAL(format_list(iv, "<", "/", ">"), "<1>");
     TEST_EQUAL(format_list(sv, "<", "/", ">"), "<hello>");
     TEST_EQUAL(format_map(ism, "<", "=", "/", ">"), "<1=hello>");
-    TEST_EQUAL(to_str(iv), "[1]");
-    TEST_EQUAL(to_str(sv), "[hello]");
-    TEST_EQUAL(to_str(ism), "{1:hello}");
 
     iv = {1,2,3};
     sv = {"hello","world","goodbye"};
@@ -1292,19 +1338,16 @@ void test_unicorn_utility_string_functions() {
     TEST_EQUAL(format_list(iv, "<", "/", ">"), "<1/2/3>");
     TEST_EQUAL(format_list(sv, "<", "/", ">"), "<hello/world/goodbye>");
     TEST_EQUAL(format_map(ism, "<", "=", "/", ">"), "<1=hello/2=world/3=goodbye>");
-    TEST_EQUAL(to_str(iv), "[1,2,3]");
-    TEST_EQUAL(to_str(sv), "[hello,world,goodbye]");
-    TEST_EQUAL(to_str(ism), "{1:hello,2:world,3:goodbye}");
 
     std::string s;
 
-    TRY(s = quote(""s));                      TEST_EQUAL(s, "\"\""s);
-    TRY(s = quote("\"\""s));                  TEST_EQUAL(s, "\"\\\"\\\"\""s);
-    TRY(s = quote("Hello world"s));           TEST_EQUAL(s, "\"Hello world\""s);
-    TRY(s = quote("\\Hello\\world\\"s));      TEST_EQUAL(s, "\"\\\\Hello\\\\world\\\\\""s);
-    TRY(s = quote("\"Hello\" \"world\""s));   TEST_EQUAL(s, "\"\\\"Hello\\\" \\\"world\\\"\""s);
-    TRY(s = quote("\t\n\f\r"s));              TEST_EQUAL(s, "\"\\t\\n\\f\\r\""s);
-    TRY(s = quote(u8"åß∂ƒ"s));                TEST_EQUAL(s, u8"\"åß∂ƒ\""s);
+    TRY(s = quote(""s));                     TEST_EQUAL(s, "\"\""s);
+    TRY(s = quote("\"\""s));                 TEST_EQUAL(s, "\"\\\"\\\"\""s);
+    TRY(s = quote("Hello world"s));          TEST_EQUAL(s, "\"Hello world\""s);
+    TRY(s = quote("\\Hello\\world\\"s));     TEST_EQUAL(s, "\"\\\\Hello\\\\world\\\\\""s);
+    TRY(s = quote("\"Hello\" \"world\""s));  TEST_EQUAL(s, "\"\\\"Hello\\\" \\\"world\\\"\""s);
+    TRY(s = quote("\t\n\f\r"s));             TEST_EQUAL(s, "\"\\t\\n\\f\\r\""s);
+    TRY(s = quote("åß∂ƒ"s));                 TEST_EQUAL(s, "\"åß∂ƒ\""s);
 
     TRY(s = bquote(""s));                      TEST_EQUAL(s, "\"\""s);
     TRY(s = bquote("\"\""s));                  TEST_EQUAL(s, "\"\\\"\\\"\""s);
@@ -1312,7 +1355,7 @@ void test_unicorn_utility_string_functions() {
     TRY(s = bquote("\\Hello\\world\\"s));      TEST_EQUAL(s, "\"\\\\Hello\\\\world\\\\\""s);
     TRY(s = bquote("\"Hello\" \"world\""s));   TEST_EQUAL(s, "\"\\\"Hello\\\" \\\"world\\\"\""s);
     TRY(s = bquote("\t\n\f\r"s));              TEST_EQUAL(s, "\"\\t\\n\\f\\r\""s);
-    TRY(s = bquote(u8"åß∂ƒ"s));                TEST_EQUAL(s, "\"\\xc3\\xa5\\xc3\\x9f\\xe2\\x88\\x82\\xc6\\x92\""s);
+    TRY(s = bquote("åß∂ƒ"s));                  TEST_EQUAL(s, "\"\\xc3\\xa5\\xc3\\x9f\\xe2\\x88\\x82\\xc6\\x92\""s);
     TRY(s = bquote("\x00\x01\x7f\x80\xff"s));  TEST_EQUAL(s, "\"\\0\\x01\\x7f\\x80\\xff\""s);
 
     TEST_EQUAL(roman(0), "");
@@ -1383,30 +1426,329 @@ void test_unicorn_utility_string_functions() {
     TEST_THROW(si_to_float(""), std::invalid_argument);
     TEST_THROW(si_to_float("k9"), std::invalid_argument);
 
-    s = "Hello";
+    TEST_EQUAL(unqualify(""), "");
+    TEST_EQUAL(unqualify("alpha"), "alpha");
+    TEST_EQUAL(unqualify("alpha.bravo"), "bravo");
+    TEST_EQUAL(unqualify("alpha.bravo.charlie"), "charlie");
+    TEST_EQUAL(unqualify("alpha::bravo"), "bravo");
+    TEST_EQUAL(unqualify("alpha::bravo::charlie"), "charlie");
+    TEST_EQUAL(unqualify("alpha-bravo"), "alpha-bravo");
+    TEST_EQUAL(unqualify("alpha-bravo-charlie"), "alpha-bravo-charlie");
 
-    TEST_EQUAL(to_str(true), "true");
-    TEST_EQUAL(to_str(false), "false");
-    TEST_EQUAL(to_str(0), "0");
-    TEST_EQUAL(to_str(42), "42");
-    TEST_EQUAL(to_str(-42), "-42");
-    TEST_EQUAL(to_str(123.456), "123.456");
-    TEST_EQUAL(to_str(s), "Hello");
-    TEST_EQUAL(to_str(s.data()), "Hello");
-    TEST_EQUAL(to_str(""s), "");
-    TEST_EQUAL(to_str("Hello"s), "Hello");
-    TEST_EQUAL(to_str('X'), "X");
+}
 
-    std::atomic<int> ai(42);                                      TEST_EQUAL(to_str(ai), "42");
-    std::pair<int, std::string> is = {42, "Hello"};               TEST_EQUAL(to_str(is), "(42,Hello)");
-    std::tuple<> t0 = {};                                         TEST_EQUAL(to_str(t0), "()");
-    std::tuple<int> t1 = {42};                                    TEST_EQUAL(to_str(t1), "(42)");
-    std::tuple<int, std::string> t2 = {42, "Hello"};              TEST_EQUAL(to_str(t2), "(42,Hello)");
-    std::tuple<int, std::string, bool> t3 = {42, "Hello", true};  TEST_EQUAL(to_str(t3), "(42,Hello,true)");
-    std::runtime_error ex1("Runtime error");                      TEST_EQUAL(to_str(ex1), "Runtime error");
-    std::invalid_argument ex2("Invalid argument");                TEST_EQUAL(to_str(ex2), "Invalid argument");
-    std::array<uint8_t, 5> ua = {{10,20,30,40,50}};               TEST_EQUAL(to_str(ua), "0a141e2832");
-    std::vector<uint8_t> uv = {{60,70,80,90,100}};                TEST_EQUAL(to_str(uv), "3c46505a64");
+void test_unicorn_utility_type_names() {
+
+    Ustring s;
+
+    const std::type_info& v_info = typeid(void);
+    const std::type_info& i_info = typeid(int);
+    const std::type_info& s_info = typeid(std::string);
+    auto v_index = std::type_index(typeid(void));
+    auto i_index = std::type_index(typeid(int));
+    auto s_index = std::type_index(typeid(std::string));
+
+    TEST_EQUAL(type_name(v_info), "void");
+    TEST_MATCH(type_name(i_info), "^(signed )?int$");
+    TEST_MATCH(type_name(s_info), "^(class )?std::([^:]+::)*(string|basic_string ?<.+>)$");
+    TEST_EQUAL(type_name(v_index), "void");
+    TEST_MATCH(type_name(i_index), "^(signed )?int$");
+    TEST_MATCH(type_name(s_index), "^(class )?std::([^:]+::)*(string|basic_string ?<.+>)$");
+    TEST_EQUAL(type_name<void>(), "void");
+    TEST_MATCH(type_name<int>(), "^(signed )?int$");
+    TEST_MATCH(type_name<std::string>(), "^(class )?std::([^:]+::)*(string|basic_string ?<.+>)$");
+    TEST_MATCH(type_name(42), "^(signed )?int$");
+    TEST_MATCH(type_name(s), "^(class )?std::([^:]+::)*(string|basic_string ?<.+>)$");
+
+    Derived1 d;
+    Base& b(d);
+    const std::type_info& d_info = typeid(d);
+    const std::type_info& b_info = typeid(b);
+    auto d_index = std::type_index(typeid(d));
+    auto b_index = std::type_index(typeid(b));
+
+    TEST_MATCH(type_name(d), "::Derived1$");
+    TEST_MATCH(type_name(b), "::Derived1$");
+    TEST_MATCH(type_name(d_info), "::Derived1$");
+    TEST_MATCH(type_name(b_info), "::Derived1$");
+    TEST_MATCH(type_name(d_index), "::Derived1$");
+    TEST_MATCH(type_name(b_index), "::Derived1$");
+
+}
+
+namespace {
+
+    struct FromView {
+        int num = 0;
+        FromView() = default;
+        explicit FromView(std::string_view s) {
+            if (s.empty() || ! ascii_isdigit(s[0]))
+                throw std::runtime_error("Bad number");
+            num = int(decnum(s));
+        }
+    };
+
+    struct FromString {
+        int num = 0;
+        FromString() = default;
+        explicit FromString(const std::string& s) {
+            if (! ascii_isdigit(s[0]))
+                throw std::runtime_error("Bad number");
+            num = int(decnum(s));
+        }
+    };
+
+    struct FromChars {
+        int num = 0;
+        FromChars() = default;
+        explicit FromChars(const char* s) {
+            if (! s || ! ascii_isdigit(*s))
+                throw std::runtime_error("Bad number");
+            num = int(decnum(s));
+        }
+    };
+
+    struct FromIstream {
+        int num = 0;
+    };
+
+    std::istream& operator>>(std::istream& i, FromIstream& t) {
+        std::string s;
+        if (i >> s) {
+            if (! ascii_isdigit(s[0]))
+                throw std::runtime_error("Bad number");
+            t.num = int(decnum(s));
+        }
+        return i;
+    }
+
+    struct FromOverload {
+        int num = 0;
+    };
+
+    bool from_str(std::string_view s, FromOverload& t) {
+        if (s.empty() || ! ascii_isdigit(s[0]))
+            return false;
+        t.num = int(decnum(s));
+        return true;
+    }
+
+}
+
+void test_unicorn_utility_conversion_from_string() {
+
+    FromView fv;
+    FromString fs;
+    FromChars fc;
+    FromIstream fi;
+    FromOverload fx;
+    std::string good = "42", bad = "bad";
+
+    TEST(from_str(good, fv));  TEST_EQUAL(fv.num, 42);
+    TEST(from_str(good, fs));  TEST_EQUAL(fv.num, 42);
+    TEST(from_str(good, fc));  TEST_EQUAL(fv.num, 42);
+    TEST(from_str(good, fi));  TEST_EQUAL(fv.num, 42);
+    TEST(from_str(good, fx));  TEST_EQUAL(fx.num, 42);
+
+    TRY(fv = FromStr<FromView>()(good));      TEST_EQUAL(fv.num, 42);
+    TRY(fs = FromStr<FromString>()(good));    TEST_EQUAL(fv.num, 42);
+    TRY(fc = FromStr<FromChars>()(good));     TEST_EQUAL(fv.num, 42);
+    TRY(fi = FromStr<FromIstream>()(good));   TEST_EQUAL(fv.num, 42);
+    TRY(fx = FromStr<FromOverload>()(good));  TEST_EQUAL(fx.num, 42);
+
+    TEST(! from_str(bad, fv));  TEST_EQUAL(fv.num, 42);
+    TEST(! from_str(bad, fs));  TEST_EQUAL(fv.num, 42);
+    TEST(! from_str(bad, fc));  TEST_EQUAL(fv.num, 42);
+    TEST(! from_str(bad, fi));  TEST_EQUAL(fv.num, 42);
+    TEST(! from_str(bad, fx));  TEST_EQUAL(fx.num, 42);
+
+    TEST_THROW(from_str<FromView>(bad), std::invalid_argument);
+    TEST_THROW(from_str<FromString>(bad), std::invalid_argument);
+    TEST_THROW(from_str<FromChars>(bad), std::invalid_argument);
+    TEST_THROW(from_str<FromIstream>(bad), std::invalid_argument);
+    TEST_THROW(from_str<FromOverload>(bad), std::invalid_argument);
+
+    TEST_EQUAL(from_str<Ustring>(""), "");
+    TEST_EQUAL(from_str<Ustring>("hello"), "hello");
+    TEST_EQUAL(from_str<int>(""), 0);
+    TEST_EQUAL(from_str<int>("0"), 0);
+    TEST_EQUAL(from_str<int>("42"), 42);
+    TEST_THROW(from_str<int>("hello"), std::invalid_argument);
+    TEST_EQUAL(from_str<double>(""), 0);
+    TEST_EQUAL(from_str<double>("0"), 0);
+    TEST_EQUAL(from_str<double>("1234.5"), 1234.5);
+    TEST_THROW(from_str<double>("hello"), std::invalid_argument);
+    TEST(! from_str<bool>(""));
+    TEST(! from_str<bool>("0"));
+    TEST(from_str<bool>("1"));
+    TEST(! from_str<bool>("false"));
+    TEST(from_str<bool>("true"));
+    TEST_THROW(from_str<bool>("hello"), std::invalid_argument);
+
+    TEST_EQUAL(from_str<FooEnum>("alpha"), alpha);
+    TEST_EQUAL(from_str<FooEnum>("FooEnum::alpha"), alpha);
+    TEST_EQUAL(from_str<BarEnum>("delta"), delta);
+    TEST_EQUAL(from_str<BarEnum>("BarEnum::delta"), delta);
+    TEST_EQUAL(from_str<ZapEnum>("golf"), ZapEnum::golf);
+    TEST_EQUAL(from_str<ZapEnum>("ZapEnum::golf"), ZapEnum::golf);
+    TEST_EQUAL(from_str<ThogEnum>("golf"), ThogEnum::golf);
+    TEST_EQUAL(from_str<ThogEnum>("ThogEnum::golf"), ThogEnum::golf);
+    TEST_THROW(from_str<FooEnum>("ALPHA"), std::invalid_argument);
+    TEST_THROW(from_str<BarEnum>("DELTA"), std::invalid_argument);
+    TEST_THROW(from_str<ZapEnum>("GOLF"), std::invalid_argument);
+    TEST_THROW(from_str<ThogEnum>("GOLF"), std::invalid_argument);
+
+}
+
+namespace {
+
+    struct ToString {
+        int num = 0;
+        explicit operator std::string() const { return "TS-" + std::to_string(num); }
+    };
+
+    struct ToView {
+        int num = 0;
+        explicit operator std::string_view() const { static std::string s; s = "TV-" + std::to_string(num); return s; }
+    };
+
+    struct ToChars {
+        int num = 0;
+        explicit operator const char*() const { static std::string s; s = "TC-" + std::to_string(num); return s.data(); }
+    };
+
+    struct ToOstream {
+        int num = 0;
+    };
+
+    std::ostream& operator<<(std::ostream& o, const ToOstream& t) {
+        return o << "TO-" << t.num;
+    }
+
+    struct ToOverload {
+        int num = 0;
+    };
+
+    std::string to_str(const ToOverload& t) {
+        return "TX-" + std::to_string(t.num);
+    }
+
+    struct HasStr {
+        int num = 0;
+        std::string str() const { return "HS-" + std::to_string(num); }
+    };
+
+    struct HasToString {
+        int num = 0;
+    };
+
+    std::string to_string(const HasToString& t) {
+        return "HT-" +  std::to_string(t.num);
+    }
+
+    struct NoConversion {};
+
+}
+
+void test_unicorn_utility_conversion_to_string() {
+
+    bool b = true;
+    char c = 'c';
+    int i = 42;
+    float f = -1.25;
+    std::string s = "Hello string";
+    std::string_view sv = "Hello view";
+    const char* cp = "Hello chars";
+    char ca[] = "Hello array";
+    ToString ts {101};
+    ToView tv {102};
+    ToChars tc {103};
+    ToOstream to {104};
+    ToOverload tx {105};
+    HasStr hs {106};
+    HasToString ht {107};
+    std::runtime_error ex("Runtime error");
+    std::array<uint8_t, 4> ba = {0x12,0x34,0x56,0x78};
+    std::vector<uint8_t> bv = {0x9a,0xbc,0xde,0xf0};
+    std::optional<int> o1;
+    std::optional<int> o2 = 42;
+    std::shared_ptr<int> sp1;
+    std::shared_ptr<int> sp2 = std::make_shared<int>(42);
+    std::unique_ptr<int> up1;
+    std::unique_ptr<int> up2 = std::make_unique<int>(42);
+    std::pair<std::string, int> p = {"Answer", 42};
+    std::tuple<int, std::string, bool> t = {42, "hello", true};
+    std::vector<int> v = {2,3,5,7,11,13,17,19};
+    std::map<int, std::string> m = {
+        {1, "alpha"},
+        {2, "bravo"},
+        {3, "charlie"},
+        {4, "delta"},
+        {5, "echo"},
+    };
+    NoConversion nc;
+    std::string out;
+    ToStr convert;
+
+    TRY(out = to_str(b));    TEST_EQUAL(out, "true");
+    TRY(out = to_str(c));    TEST_EQUAL(out, "c");
+    TRY(out = to_str(i));    TEST_EQUAL(out, "42");
+    TRY(out = to_str(f));    TEST_EQUAL(out, "-1.25");
+    TRY(out = to_str(s));    TEST_EQUAL(out, "Hello string");
+    TRY(out = to_str(sv));   TEST_EQUAL(out, "Hello view");
+    TRY(out = to_str(cp));   TEST_EQUAL(out, "Hello chars");
+    TRY(out = to_str(ca));   TEST_EQUAL(out, "Hello array");
+    TRY(out = to_str(ts));   TEST_EQUAL(out, "TS-101");
+    TRY(out = to_str(tv));   TEST_EQUAL(out, "TV-102");
+    TRY(out = to_str(tc));   TEST_EQUAL(out, "TC-103");
+    TRY(out = to_str(to));   TEST_EQUAL(out, "TO-104");
+    TRY(out = to_str(tx));   TEST_EQUAL(out, "TX-105");
+    TRY(out = to_str(hs));   TEST_EQUAL(out, "HS-106");
+    TRY(out = to_str(ht));   TEST_EQUAL(out, "HT-107");
+    TRY(out = to_str(ex));   TEST_EQUAL(out, "Runtime error");
+    TRY(out = to_str(ba));   TEST_EQUAL(out, "12 34 56 78");
+    TRY(out = to_str(bv));   TEST_EQUAL(out, "9a bc de f0");
+    TRY(out = to_str(o1));   TEST_EQUAL(out, "null");
+    TRY(out = to_str(o2));   TEST_EQUAL(out, "42");
+    TRY(out = to_str(sp1));  TEST_EQUAL(out, "null");
+    TRY(out = to_str(sp2));  TEST_EQUAL(out, "42");
+    TRY(out = to_str(up1));  TEST_EQUAL(out, "null");
+    TRY(out = to_str(up2));  TEST_EQUAL(out, "42");
+    TRY(out = to_str(p));    TEST_EQUAL(out, "(Answer,42)");
+    TRY(out = to_str(t));    TEST_EQUAL(out, "(42,hello,true)");
+    TRY(out = to_str(v));    TEST_EQUAL(out, "[2,3,5,7,11,13,17,19]");
+    TRY(out = to_str(m));    TEST_EQUAL(out, "{1:alpha,2:bravo,3:charlie,4:delta,5:echo}");
+    TRY(out = to_str(nc));   TEST_MATCH(out, "::NoConversion$");
+
+    TRY(out = convert(b));    TEST_EQUAL(out, "true");
+    TRY(out = convert(c));    TEST_EQUAL(out, "c");
+    TRY(out = convert(i));    TEST_EQUAL(out, "42");
+    TRY(out = convert(f));    TEST_EQUAL(out, "-1.25");
+    TRY(out = convert(s));    TEST_EQUAL(out, "Hello string");
+    TRY(out = convert(sv));   TEST_EQUAL(out, "Hello view");
+    TRY(out = convert(cp));   TEST_EQUAL(out, "Hello chars");
+    TRY(out = convert(ca));   TEST_EQUAL(out, "Hello array");
+    TRY(out = convert(ts));   TEST_EQUAL(out, "TS-101");
+    TRY(out = convert(tv));   TEST_EQUAL(out, "TV-102");
+    TRY(out = convert(tc));   TEST_EQUAL(out, "TC-103");
+    TRY(out = convert(to));   TEST_EQUAL(out, "TO-104");
+    TRY(out = convert(tx));   TEST_EQUAL(out, "TX-105");
+    TRY(out = convert(hs));   TEST_EQUAL(out, "HS-106");
+    TRY(out = convert(ht));   TEST_EQUAL(out, "HT-107");
+    TRY(out = convert(ex));   TEST_EQUAL(out, "Runtime error");
+    TRY(out = convert(ba));   TEST_EQUAL(out, "12 34 56 78");
+    TRY(out = convert(bv));   TEST_EQUAL(out, "9a bc de f0");
+    TRY(out = convert(o1));   TEST_EQUAL(out, "null");
+    TRY(out = convert(o2));   TEST_EQUAL(out, "42");
+    TRY(out = convert(sp1));  TEST_EQUAL(out, "null");
+    TRY(out = convert(sp2));  TEST_EQUAL(out, "42");
+    TRY(out = convert(up1));  TEST_EQUAL(out, "null");
+    TRY(out = convert(up2));  TEST_EQUAL(out, "42");
+    TRY(out = convert(p));    TEST_EQUAL(out, "(Answer,42)");
+    TRY(out = convert(t));    TEST_EQUAL(out, "(42,hello,true)");
+    TRY(out = convert(v));    TEST_EQUAL(out, "[2,3,5,7,11,13,17,19]");
+    TRY(out = convert(m));    TEST_EQUAL(out, "{1:alpha,2:bravo,3:charlie,4:delta,5:echo}");
+    TRY(out = convert(nc));   TEST_MATCH(out, "::NoConversion$");
 
 }
 

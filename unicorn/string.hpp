@@ -106,10 +106,10 @@ namespace RS::Unicorn {
         }
 
         inline void check_length_flags(uint32_t& flags) {
-            if (ibits(flags & (Length::characters | Length::graphemes)) > 1
-                    || ibits(flags & (Length::characters | east_asian_flags)) > 1)
+            if (popcount(flags & (Length::characters | Length::graphemes)) > 1
+                    || popcount(flags & (Length::characters | east_asian_flags)) > 1)
                 throw std::invalid_argument("Inconsistent string length flags");
-            if (ibits(flags & all_length_flags) == 0)
+            if (popcount(flags & all_length_flags) == 0)
                 flags |= Length::graphemes;
         }
 
@@ -293,12 +293,12 @@ namespace RS::Unicorn {
     }
 
     struct Strcmp {
-        static constexpr auto equal     = uint32_t(1) << 0;
-        static constexpr auto less      = uint32_t(1) << 1;
-        static constexpr auto triple    = uint32_t(1) << 2;
-        static constexpr auto fallback  = uint32_t(1) << 3;
-        static constexpr auto icase     = uint32_t(1) << 4;
-        static constexpr auto natural   = uint32_t(1) << 5;
+        static constexpr uint32_t equal     = setbit<0>;
+        static constexpr uint32_t less      = setbit<1>;
+        static constexpr uint32_t triple    = setbit<2>;
+        static constexpr uint32_t fallback  = setbit<3>;
+        static constexpr uint32_t icase     = setbit<4>;
+        static constexpr uint32_t natural   = setbit<5>;
     };
 
     template <uint32_t Flags>
@@ -471,6 +471,7 @@ namespace RS::Unicorn {
     Strings str_splitv(const Ustring& src);
     Strings str_splitv_at(const Ustring& src, const Ustring& delim);
     Strings str_splitv_by(const Ustring& src, const Ustring& delim);
+    Strings str_splitv_lines(const Ustring& src);
     Ustring str_squeeze(const Ustring& str);
     Ustring str_squeeze(const Ustring& str, const Ustring& chars);
     Ustring str_squeeze_trim(const Ustring& str);
@@ -502,40 +503,61 @@ namespace RS::Unicorn {
     void str_unify_lines_in(Ustring& str, char32_t newline);
     void str_unify_lines_in(Ustring& str);
 
-    struct Wrap {
-
-        static constexpr Kwarg<bool, 1> enforce = {};    // Enforce right margin strictly (default false)
-        static constexpr Kwarg<bool, 2> preserve = {};   // Preserve layout on already indented lines (default false)
-        static constexpr Kwarg<uint32_t> flags = {};     // Flags for string length (default 0)
-        static constexpr Kwarg<size_t, 1> margin = {};   // Margin for first line (default 0)
-        static constexpr Kwarg<size_t, 2> margin2 = {};  // Margin for subsequent lines (default same as margin)
-        static constexpr Kwarg<size_t, 3> width = {};    // Wrap width (default COLUMNS-2)
-        static constexpr Kwarg<Ustring> newline = {};    // Line break (default "\n")
-
+    class Wrap {
+    public:
+        static constexpr Kwarg<bool, 1> enforce = {};     // Enforce right margin strictly (default false)
+        static constexpr Kwarg<bool, 2> lines = {};       // Treat every line as a paragraph (default false)
+        static constexpr Kwarg<bool, 3> preserve = {};    // Preserve layout on already indented lines (default false)
+        static constexpr Kwarg<uint32_t> flags = {};      // Flags for string length (default 0)
+        static constexpr Kwarg<size_t, 1> margin = {};    // Margin for first line (default 0)
+        static constexpr Kwarg<size_t, 2> margin2 = {};   // Margin for subsequent lines (default is same as margin)
+        static constexpr Kwarg<size_t, 3> width = {};     // Wrap width (default is $COLUMNS-2)
+        static constexpr Kwarg<Ustring, 1> newline = {};  // Line break (default LF)
+        static constexpr Kwarg<Ustring, 2> newpara = {};  // Paragraph break (default is two line breaks)
+        Wrap() { init(); }
+        template <typename... Args> Wrap(Args... args);
+        Ustring wrap(const Ustring& src) const { Ustring dst; do_wrap(src, dst); return dst; }
+        void wrap_in(Ustring& src) const { Ustring dst; do_wrap(src, dst); src = std::move(dst); }
+        Ustring operator()(const Ustring& src) const { return wrap(src); }
+    private:
+        bool enforce_ = false;
+        bool lines_ = false;
+        bool preserve_ = false;
+        uint32_t flags_ = 0;
+        size_t margin_ = 0;
+        size_t margin2_ = npos;
+        size_t width_ = npos;
+        Ustring newline_ = "\n";
+        Ustring newpara_ = "\n\n";
+        size_t pbreak_ = 2;
+        size_t spacing_ = 1;
+        void do_wrap(const Ustring& src, Ustring& dst) const;
+        void init();
     };
 
-    namespace UnicornDetail {
-
-        void str_wrap_helper(const Ustring& src, Ustring& dst, bool enforce, bool preserve, uint32_t flags, size_t margin, size_t margin2, size_t width, const Ustring& newline);
-
-    }
+        template <typename... Args>
+        Wrap::Wrap(Args... args) {
+            using namespace std::literals;
+            enforce_ = kwget(enforce, false, args...);
+            lines_ = kwget(lines, false, args...);
+            preserve_ = kwget(preserve, false, args...);
+            flags_ = kwget(flags, uint32_t(0), args...);
+            margin_ = kwget(margin, size_t(0), args...);
+            margin2_ = kwget(margin2, npos, args...);
+            width_ = kwget(width, npos, args...);
+            newline_ = kwget(newline, "\n"s, args...);
+            newpara_ = kwget(newpara, newline_ + newline_, args...);
+            init();
+        }
 
     template <typename... Args> Ustring str_wrap(const Ustring& str, Args... args) {
-        using namespace std::literals;
-        bool enforce = kwget(Wrap::enforce, false, args...);
-        bool preserve = kwget(Wrap::preserve, false, args...);
-        uint32_t flags = kwget(Wrap::flags, uint32_t(0), args...);
-        size_t margin = kwget(Wrap::margin, size_t(0), args...);
-        size_t margin2 = kwget(Wrap::margin2, npos, args...);
-        size_t width = kwget(Wrap::width, npos, args...);
-        Ustring newline = kwget(Wrap::newline, "\n"s, args...);
-        Ustring result;
-        UnicornDetail::str_wrap_helper(str, result, enforce, preserve, flags, margin, margin2, width, newline);
-        return result;
+        Wrap w(std::forward<Args>(args)...);
+        return w.wrap(str);
     }
 
     template <typename... Args> void str_wrap_in(Ustring& str, Args... args) {
-        str = str_wrap(str, std::forward<Args>(args)...);
+        Wrap w(std::forward<Args>(args)...);
+        w.wrap_in(str);
     }
 
     template <typename C, typename... Strings>
@@ -820,23 +842,23 @@ namespace RS::Unicorn {
     Ustring str_lowercase(const Ustring& str);
     Ustring str_titlecase(const Ustring& str);
     Ustring str_casefold(const Ustring& str);
+    Ustring str_case(const Ustring& str, Case c);
     Ustring str_initial_titlecase(const Ustring& str);
     void str_uppercase_in(Ustring& str);
     void str_lowercase_in(Ustring& str);
     void str_titlecase_in(Ustring& str);
     void str_casefold_in(Ustring& str);
+    void str_case_in(Ustring& str, Case c);
     void str_initial_titlecase_in(Ustring& str);
 
     // Escaping and quoting functions
     // Defined in string-escape.cpp
 
     struct Escape {
-
-        static constexpr uint32_t ascii   = 1ul << 0;  // Escape all non-ASCII characters
-        static constexpr uint32_t nostdc  = 1ul << 1;  // Do not use standard C symbols such as `\n`
-        static constexpr uint32_t pcre    = 1ul << 2;  // Use `\x{...}` instead of `\u` and `\U` (implies `nonascii`)
-        static constexpr uint32_t punct   = 1ul << 3;  // Escape ASCII punctuation
-
+        static constexpr uint32_t ascii   = setbit<0>;  // Escape all non-ASCII characters
+        static constexpr uint32_t nostdc  = setbit<1>;  // Do not use standard C symbols such as `\n`
+        static constexpr uint32_t pcre    = setbit<2>;  // Use `\x{...}` instead of `\u` and `\U` (implies `nonascii`)
+        static constexpr uint32_t punct   = setbit<3>;  // Escape ASCII punctuation
     };
 
     Ustring str_encode_uri(const Ustring& str);

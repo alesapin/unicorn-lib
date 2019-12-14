@@ -288,8 +288,8 @@ characters skipped.
 These append one or more characters to a Unicode string, performing any
 necessary encoding conversions.
 
-* `Ustring>` **`str_char`**`(char32_t c)`
-* `Ustring>` **`str_chars`**`(size_t n, char32_t c)`
+* `Ustring` **`str_char`**`(char32_t c)`
+* `Ustring` **`str_chars`**`(size_t n, char32_t c)`
 
 Return a string containing `n` copies of the character.
 
@@ -460,10 +460,11 @@ original source string is empty; if the delimiter string is empty (but the
 source string is not), a single string will be written.
 
 * `template <typename OutIter> void` **`str_split_lines`**`(const Ustring& src, OutIter dst)`
+* `Strings` **`str_splitv_lines`**`(const Ustring& src)`
 
-Splits a string at each line break, copying lines into the output iterator.
-Any character that passes `char_is_line_break()` is counted as a line break.
-The line break characters are not included in the output strings. The `CR+LF`
+Split a string at each line break, copying lines into the output iterator. Any
+character that passes `char_is_line_break()` is counted as a line break. The
+line break characters are not included in the output strings. The `CR+LF`
 combination is counted as a single line break; any other sequence of multiple
 line breaks will generate empty lines in the output. An empty line will not be
 generated at the end if the last character in the input was a line break.
@@ -551,46 +552,62 @@ Unicode line or paragraph breaking character is recognised and replaced; the
 string was completely empty, a line break will be added at the end if it was
 not already there.
 
+* `class` **`Wrap`**
+    * _Keyword arguments (see below)_
+    * `Wrap::`**`Wrap`**`()`
+    * `template <typename... Args> Wrap::`**`Wrap`**`(Args... args)`
+    * `Ustring Wrap::`**`wrap`**`(const Ustring& src) const`
+    * `void Wrap::`**`wrap_in`**`(Ustring& src) const`
+    * `Ustring Wrap::`**`operator()`**`(const Ustring& src) const`
 * `template <typename... Args> Ustring` **`str_wrap`**`(const Ustring& str, Args... args)`
 * `template <typename... Args> void` **`str_wrap_in`**`(Ustring& str, Args... args)`
 
-Wrap the text in a string to a given width. Wrapping is done separately for
-each paragraph; paragraphs are delimited by two or more line breaks (as usual,
-`CR+LF` is counted as a single line break), or a single paragraph separator
-character (`U+2029`). Words are simply delimited by whitespace, which may not
-be appropriate for all languages; no attempt is made at anything more
-sophisticated such as hyphenation or locale-specific word breaking rules.
+The `Wrap` class, and the two `str_wrap*()` functions, wrap the text in a
+string to a given width. The class stores a set of wrapping parameters,
+supplied as keyword arguments to the constructor; the two free functions may
+be more convenient when only a single call is needed and the parameters do not
+need to be saved. The function call operator is equivalent to the `wrap()`
+method.
 
 The following keyword arguments are recognised:
 
 Keyword                 | Type        | Description                                | Default
 -------                 | ----        | -----------                                | -------
 `Wrap::`**`enforce`**   | `bool`      | Enforce right margin strictly              | `false`
+`Wrap::`**`lines`**     | `bool`      | Treat every line as a paragraph            | `false`
 `Wrap::`**`preserve`**  | `bool`      | Preserve layout on already indented lines  | `false`
-`Wrap::`**`flags`**     | `uint32_t`  | Flags for string length                    | `Length::characters`
+`Wrap::`**`flags`**     | `uint32_t`  | Flags for string length                    | `Length::graphemes`
 `Wrap::`**`margin`**    | `size_t`    | Margin for first line                      | 0
 `Wrap::`**`margin2`**   | `size_t`    | Margin for subsequent lines                | same as `margin`
 `Wrap::`**`width`**     | `size_t`    | Wrap width                                 | see below
-`Wrap::`**`newline`**   | `Ustring`   | Line break                                 | `"\n"`
+`Wrap::`**`newline`**   | `Ustring`   | Line break on output                       | `"\n"`
+`Wrap::`**`newpara`**   | `Ustring`   | Paragraph break on output                  | two `newline`
 
-By default, the width is set to two characters less than the current terminal
-width, obtained from the `COLUMNS` environment variable; the terminal width is
-assumed to be 80 characters if `COLUMNS` is undefined or invalid. The `margin`
-and `margin2` arguments determine the number of spaces used to indent the
-first and subsequent lines, respectively, of a paragraph (the width includes
-the indentation); if `margin2` is not supplied, it defaults to the same value
-as `margin`. The function will throw `std::length_error` if either margin is
-greater than or equal to the width.
+Wrapping is done separately for each paragraph. Words are simply delimited by
+whitespace, which may not be appropriate for all languages; no attempt is made
+at anything more sophisticated such as hyphenation or locale-specific word
+breaking rules.
+
+Paragraphs are normally delimited by two or more line breaks; if the `lines`
+flag is set, every line break is interpreted as a paragraph break. As usual,
+`CR+LF` is counted as a single line break.
 
 Width is measured using the usual rules for string length, controlled by the
-`flags` argument.
+`flags` argument. By default, the width is set to two characters less than the
+current terminal width, obtained from the `COLUMNS` environment variable; the
+terminal width is assumed to be 80 characters if `COLUMNS` is undefined or
+invalid. The `margin` and `margin2` arguments determine the number of spaces
+used to indent the first and subsequent lines, respectively, of a paragraph
+(the width includes the indentation); if `margin2` is not supplied, it
+defaults to the same value as `margin`. The function will throw
+`std::length_error` if either margin is greater than or equal to the width.
 
-The `newline` value is used for all line breaks on output; any line breaking
-already present in the input text is discarded. Paragraph breaks are replaced
-with two line breaks, regardless of their original spelling; a single line
-break is inserted at the end of the output. If the `preserve` flag is used,
-any paragraphs that start with an indented line are left in their original
-layout.
+The `newline` value is used for all line breaks in the output; any line
+breaking already present in the input text is discarded. The `newpara` value
+is used for paragraph breaks in the output; the default is two line breaks. A
+single line break is inserted at the end of the output. If the `preserve` flag
+is used, any paragraphs that start with an indented line are left in their
+original layout.
 
 If a single word is too long to fit on one line, the default behaviour is to
 allow it to violate the right margin. If the `enforce` flag is used, this will
@@ -606,6 +623,8 @@ cause the function to throw `std::length_error` instead.
 * `void` **`str_titlecase_in`**`(Ustring& str)`
 * `Ustring` **`str_casefold`**`(const Ustring& str)`
 * `void` **`str_casefold_in`**`(Ustring& str)`
+* `Ustring` **`str_case`**`(const Ustring& str, Case c)`
+* `void` **`str_case_in`**`(Ustring& str, Case c)`
 
 These convert a string to upper case, lower case, title case, or the case
 folded form (the form recommended by Unicode for case insensitive string

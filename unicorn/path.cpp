@@ -3,12 +3,18 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
+#include <cwchar>
 #include <ios>
+#include <regex>
 #include <stdexcept>
 #include <system_error>
 
 #ifdef __APPLE__
     #include <Availability.h>
+#endif
+
+#ifdef __CYGWIN__
+    #include <sys/cygwin.h>
 #endif
 
 #ifdef _XOPEN_SOURCE
@@ -22,7 +28,6 @@
     #define CX(c) c
     #define FX(f) f
 #else
-    #include <regex>
     #include <windows.h>
     #define CX(c) L##c
     #define FX(f) _w##f
@@ -179,6 +184,25 @@ namespace RS::Unicorn {
     }
 
     // Path name functions
+
+    Path::host_string_type Path::native_name() const {
+        #ifdef __CYGWIN__
+            auto rc = cygwin_conv_path(CCP_POSIX_TO_WIN_W | CCP_RELATIVE, c_name(), nullptr, 0);
+            auto err = errno;
+            if (rc == -1)
+                throw std::system_error(err, std::system_category(), "cygwin_conv_path()");
+            std::wstring buf(rc / 2 + 1, L'\0');
+            rc = cygwin_conv_path(CCP_POSIX_TO_WIN_W | CCP_RELATIVE, c_name(), buf.data(), 2 * buf.size());
+            err = errno;
+            if (rc == -1)
+                throw std::system_error(err, std::system_category(), "cygwin_conv_path()");
+            size_t len = std::wcslen(buf.data());
+            buf.resize(len);
+            return buf;
+        #else
+            return filename;
+        #endif
+    }
 
     Ustring Path::as_url(flag_type flags) const {
         if (! is_absolute())
@@ -1146,7 +1170,14 @@ namespace RS::Unicorn {
         while (impl) {
             #ifdef _XOPEN_SOURCE
                 dirent* entptr = nullptr;
+                #ifdef __GNUC__
+                    #pragma GCC diagnostic push
+                    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+                #endif
                 int rc = readdir_r(impl->dirptr, &impl->entry, &entptr);
+                #ifdef __GNUC__
+                    #pragma GCC diagnostic pop
+                #endif
                 bool ok = rc == 0 && entptr;
                 if (ok)
                     impl->leaf = impl->entry.d_name;

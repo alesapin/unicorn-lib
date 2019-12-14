@@ -12,6 +12,9 @@ extern void test_unicorn_utility_metaprogramming();
 extern void test_unicorn_utility_range_types();
 extern void test_unicorn_utility_scope_guards();
 extern void test_unicorn_utility_string_functions();
+extern void test_unicorn_utility_type_names();
+extern void test_unicorn_utility_conversion_from_string();
+extern void test_unicorn_utility_conversion_to_string();
 extern void test_unicorn_utility_version_number();
 extern void test_unicorn_character_version_information();
 extern void test_unicorn_character_basic_functions();
@@ -58,6 +61,10 @@ extern void test_unicorn_options_required();
 extern void test_unicorn_options_anonymous();
 extern void test_unicorn_options_group();
 extern void test_unicorn_options_patterns();
+extern void test_unicorn_options_si_units();
+extern void test_unicorn_options_enumeration();
+extern void test_unicorn_options_implication();
+extern void test_unicorn_options_prerequisites();
 extern void test_unicorn_options_help();
 extern void test_unicorn_options_insertions();
 extern void test_unicorn_path_legal_names();
@@ -160,6 +167,9 @@ int main() {
         { "unicorn/utility/range-types", test_unicorn_utility_range_types },
         { "unicorn/utility/scope-guards", test_unicorn_utility_scope_guards },
         { "unicorn/utility/string-functions", test_unicorn_utility_string_functions },
+        { "unicorn/utility/type-names", test_unicorn_utility_type_names },
+        { "unicorn/utility/conversion-from-string", test_unicorn_utility_conversion_from_string },
+        { "unicorn/utility/conversion-to-string", test_unicorn_utility_conversion_to_string },
         { "unicorn/utility/version-number", test_unicorn_utility_version_number },
         { "unicorn/character/version-information", test_unicorn_character_version_information },
         { "unicorn/character/basic-functions", test_unicorn_character_basic_functions },
@@ -206,6 +216,10 @@ int main() {
         { "unicorn/options/anonymous", test_unicorn_options_anonymous },
         { "unicorn/options/group", test_unicorn_options_group },
         { "unicorn/options/patterns", test_unicorn_options_patterns },
+        { "unicorn/options/si-units", test_unicorn_options_si_units },
+        { "unicorn/options/enumeration", test_unicorn_options_enumeration },
+        { "unicorn/options/implication", test_unicorn_options_implication },
+        { "unicorn/options/prerequisites", test_unicorn_options_prerequisites },
         { "unicorn/options/help", test_unicorn_options_help },
         { "unicorn/options/insertions", test_unicorn_options_insertions },
         { "unicorn/path/legal-names", test_unicorn_path_legal_names },

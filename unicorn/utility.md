@@ -13,6 +13,93 @@ These are in `namespace RS` (except for the metaprogramming facilities in
 
 [TOC]
 
+## Preprocessor macros ##
+
+* `#define` **`RS_BITMASK_OPERATORS`**`(EnumType)`
+
+Defines bit manipulation and related operators for an `enum class` (unary `!`,
+`~`; binary `&`, `&=`, `|`, `|=`, `^`, `^=`). The type can be defined the
+conventional way or through the `RS_ENUM_CLASS()` macro.
+
+* `#define` **`RS_ENUM`**`(EnumType, IntType, first_value, first_name, ...)`
+* `#define` **`RS_ENUM_CLASS`**`(EnumType, IntType, first_value, first_name, ...)`
+
+These define an enumeration, given the name of the enumeration type, the
+underlying integer type, the integer value of the first entry, and a list of
+value names. They will also define the following functions:
+
+* `constexpr bool` **`enum_is_valid`**`(EnumType t) noexcept`
+* `std::vector<EnumType>` **`enum_values<EnumType>`**`()`
+* `bool` **`str_to_enum`**`(std::string_view s, EnumType& t) noexcept`
+* `std::string` **`to_str`**`(EnumType t)`
+* `std::ostream&` **`operator<<`**`(std::ostream& out, EnumType t)`
+
+The `enum_is_valid()` function reports whether or not the argument is a named
+value of the enumeration. The `enum_values<T>()` function returns a vector
+containing all of the enumeration values. The `str_to_enum()` function
+converts the name of an enumeration value (case sensitive; possibly qualified
+with the class name) to the corresponding value; if the string does not match
+any value, it leaves the reference argument unchanged and returns false. The
+`to_str()` function and the output operator print the name of an enumeration
+constant (qualified with the class name if this is an `enum class`), or the
+integer value if the argument is not a named value.
+
+Example:
+
+    RS_ENUM(Foo, 1, alpha, bravo, charlie)
+    RS_ENUM_CLASS(Bar, 1, delta, echo, foxtrot)
+
+Equivalent code:
+
+    enum Foo { alpha = 1, bravo, charlie };
+    constexpr bool enum_is_valid(Foo t) noexcept { ... }
+    std::string to_str(Foo t) { ... }
+    std::ostream& operator<<(std::ostream& out, Foo t) { ... }
+
+    enum class Bar { delta = 1, echo, foxtrot };
+    constexpr bool enum_is_valid(Bar t) noexcept { ... }
+    std::string to_str(Bar t) { ... }
+    std::ostream& operator<<(std::ostream& out, Bar t) { ... }
+
+The macros can be used in any namespace, and the functions that take an enum
+value as an argument will be in that namespace, but `enum_values()` is a
+single function template in `namespace RS`.
+
+* `#define` **`RS_MOVE_ONLY`**`(T)`
+    * `T(const T&) = delete;`
+    * `T(T&&) = default;`
+    * `T& operator=(const T&) = delete;`
+    * `T& operator=(T&&) = default;`
+* `#define` **`RS_NO_COPY_MOVE`**`(T)`
+    * `T(const T&) = delete;`
+    * `T(T&&) = delete;`
+    * `T& operator=(const T&) = delete;`
+    * `T& operator=(T&&) = delete;`
+* `#define` **`RS_NO_INSTANCE`**`(T)`
+    * `T() = delete;`
+    * `T(const T&) = delete;`
+    * `T(T&&) = delete;`
+    * `~T() = delete;`
+    * `T& operator=(const T&) = delete;`
+    * `T& operator=(T&&) = delete;`
+
+Convenience macros for defaulted or deleted life cycle operations.
+
+* `#define` **`RS_NATIVE_WCHAR`** `1` _- defined if the system API uses wide characters_
+* `#define` **`RS_WCHAR_UTF16`** `1` _- defined if wchar_t and wstring are UTF-16_
+* `#define` **`RS_WCHAR_UTF32`** `1` _- defined if wchar_t and wstring are UTF-32_
+
+These are defined to reflect the encoding represented by `wchar_t` and
+`std::wstring`. Systems where wide strings are neither UTF-16 nor UTF-32 are
+not supported.
+
+* `#define` **`RS_OVERLOAD`**`(f) [] (auto&&... args) { return f(std::forward<decltype(args)>(args)...); }`
+
+Creates a function object wrapping a set of overloaded functions, that can be
+passed to a context expecting a function (such as an STL algorithm) without
+having to explicitly resolve the overload at the call site. (From an idea by
+Arthur O'Dwyer on the C++ standard proposals mailing list, 14 Sep 2015.)
+
 ## Basic types ##
 
 * `using` **`Ustring`** `= std::string`
@@ -28,21 +115,26 @@ bytes rather than encoded text.
 
 Commonly used type defined for convenience.
 
-* `#define` **`RS_NATIVE_WCHAR`** `1` _- defined if the system API uses wide characters_
 * `using` **`NativeCharacter`** `= [char on Unix, wchar_t on Windows]`
 * `using` **`NativeString`** `= [std::string on Unix, std::wstring on Windows]`
 
 These are defined to reflect the character types used in the operating
 system's native API.
 
-* `#define` **`RS_WCHAR_UTF16`** `1` _- defined if wchar_t and wstring are UTF-16_
-* `#define` **`RS_WCHAR_UTF32`** `1` _- defined if wchar_t and wstring are UTF-32_
 * `using` **`WcharEquivalent`** `= [char16_t or char32_t]`
 * `using` **`WstringEquivalent`** `= [std::u16string or std::u32string]`
 
 These are defined to reflect the encoding represented by `wchar_t` and
 `std::wstring`. Systems where wide strings are neither UTF-16 nor UTF-32 are
 not supported.
+
+* `template <auto> class` **`IncompleteTemplate`**
+* `class` **`IncompleteType`**
+* `template <auto> class` **`CompleteTemplate`**
+* `class` **`CompleteType`**
+
+Dummy types used in metaprogramming. The `Complete` types are complete but
+cannot be instantiated.
 
 ## Constants ##
 
@@ -67,6 +159,12 @@ Defined for convenience. Following the conventions established by the standard
 library, this value is often used as a function argument to mean "as large as
 possible" or "no limit", or as a return value to mean "not found".
 
+* `template <int N> constexpr [unsigned integer]` **`setbit`** `= 1 << N`
+
+An integer constant with bit `N` set. The return type is the smallest unsigned
+integer (not counting `bool`) that will hold the value. Behaviour is undefined
+if `N<0` or `N>63`.
+
 ## Algorithms ##
 
 * `template <typename Container> [output iterator]` **`append`**`(Container& con)`
@@ -83,9 +181,9 @@ can be used to copy any range into a container (e.g. `range >> append(con)`).
 * `template <typename Container, typename T> void` **`append_to`**`(Container& con, const T& t)`
 
 Appends an item to a container; used by `append()` and `overwrite()`. The
-generic version calls `con.insert(con.end(), t)`; overloads (found by argument
-dependent lookup) can be used for container-like types that do not have a
-suitable `insert()` method.
+generic version calls `con.push_back(t)` or `con.insert(con.end(), t)`;
+overloads (found by argument dependent lookup) can be used for other
+container-like types.
 
 * `template <typename Range1, typename Range2> int` **`compare_3way`**`(const Range1& r1, const Range2& r2)`
 * `template <typename Range1, typename Range2, typename Compare> int` **`compare_3way`**`(const Range1& r1, const Range2& r2, Compare cmp)`
@@ -95,14 +193,9 @@ zero if they are equal, and +1 if the first range is greater.
 
 ## Arithmetic functions ##
 
-For the bit manipulation functions (`ibits()`, `ifloor2()`, `iceil2()`,
-`ilog2p1()`, `ispow2()`, `rotl()`, and `rotr()`), behaviour is undefined if
+For the bit manipulation functions (`ifloor2()`, `iceil2()`, `ilog2p1()`,
+`ispow2()`, `popcount()` `rotl()`, and `rotr()`), behaviour is undefined if
 `T` is not an integer, or if `T` is signed and the argument is negative.
-
-* `template <typename T, typename T2, typename T3> constexpr T` **`clamp`**`(const T& x, const T2& min, const T3& max) noexcept`
-
-Clamps a value to a fixed range. This returns `min` if `t<min`, `max` if
-`t>max`, otherwise `t`. `T2` and `T3` must be implicitly convertible t `T`.
 
 * `template <typename T> constexpr std::make_signed_t<T>` **`as_signed`**`(T t) noexcept`
 * `template <typename T> constexpr std::make_unsigned_t<T>` **`as_unsigned`**`(T t) noexcept`
@@ -111,10 +204,6 @@ These return their argument converted to a signed or unsigned value of the
 same size (the argument is returned unchanged if `T` already had the desired
 signedness). Behaviour is undefined if `T` is not an integer or enumeration
 type.
-
-* `template <typename T> constexpr int` **`ibits`**`(T t) noexcept`
-
-Returns the number of 1 bits in the argument.
 
 * `template <typename T> constexpr T` **`ifloor2`**`(T t) noexcept`
 * `template <typename T> constexpr T` **`iceil2`**`(T t) noexcept`
@@ -136,6 +225,10 @@ True if the argument is an exact power of 2.
 
 Converts a letter to a mask with bit 0-51 set (corresponding to `[A-Za-z]`).
 Returns zero if the argument is not an ASCII letter.
+
+* `template <typename T> constexpr int` **`popcount`**`(T t) noexcept`
+
+Returns the number of 1 bits in the argument.
 
 * `template <typename T> constexpr T` **`rotl`**`(T t, int n) noexcept`
 * `template <typename T> constexpr T` **`rotr`**`(T t, int n) noexcept`
@@ -260,40 +353,41 @@ Example:
 
 ## Metaprogramming ##
 
-* `namespace RS::Meta`
-    * `template <template <typename...> typename Archetype, typename... Args> struct` **`IsDetected`**
-    * `template <template <typename...> typename Archetype, typename... Args> constexpr bool` **`is_detected`**
-        * _True if the archetype is a valid expression for the supplied argument types_
-    * `template <typename Default, template <typename...> typename Archetype, typename... Args> struct` **`DetectedOr`**
-        * _Returns the type defined by the archetype if it is valid, otherwise the default type_
-    * `template <typename Result, template <typename...> typename Archetype, typename... Args> struct` **`IsDetectedExact`**
-    * `template <typename Result, template <typename...> typename Archetype, typename... Args> constexpr bool` **`is_detected_exact`**
-        * _True if the archetype is valid and returns a specific type_
-    * `template <typename Result, template <typename...> typename Archetype, typename... Args> struct` **`IsDetectedConvertible`**
-    * `template <typename Result, template <typename...> typename Archetype, typename... Args> constexpr bool` **`is_detected_convertible`**
-        * _True if the archetype is valid and returns a type convertible to the specified type_
+Everything in this section is under `namespace RS::Meta`.
+
+* `template <template <typename...> typename Archetype, typename... Args> struct` **`IsDetected`**
+* `template <template <typename...> typename Archetype, typename... Args> constexpr bool` **`is_detected`**
+    * _True if the archetype is a valid expression for the supplied argument types_
+* `template <typename Default, template <typename...> typename Archetype, typename... Args> struct` **`DetectedOr`**
+    * _Returns the type defined by the archetype if it is valid, otherwise the default type_
+* `template <typename Result, template <typename...> typename Archetype, typename... Args> struct` **`IsDetectedExact`**
+* `template <typename Result, template <typename...> typename Archetype, typename... Args> constexpr bool` **`is_detected_exact`**
+    * _True if the archetype is valid and returns a specific type_
+* `template <typename Result, template <typename...> typename Archetype, typename... Args> struct` **`IsDetectedConvertible`**
+* `template <typename Result, template <typename...> typename Archetype, typename... Args> constexpr bool` **`is_detected_convertible`**
+    * _True if the archetype is valid and returns a type convertible to the specified type_
 
 Reflection primitives, based on Walter E. Brown's
 [N4502 Proposing Standard Library Support for the C++ Detection Idiom V2](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/n4502.pdf).
 
-* `namespace RS::Meta`
-    * `template <typename T> struct` **`IsIterator`**
-    * `template <typename T> constexpr bool` **`is_iterator`** `= IsIterator<T>::value`
-        * _True if the type is an iterator (detected by checking `iterator_traits`)_
-    * `template <typename T> struct` **`IsRange`**
-    * `template <typename T> constexpr bool` **`is_range`** `= IsRange<T>::value`
-        * _True if the type is a range (detected by checking for `begin()` and `end()`)_
+* `template <typename T> struct` **`IsIterator`**
+* `template <typename T> constexpr bool` **`is_iterator`** `= IsIterator<T>::value`
+    * _True if the type is an iterator (detected by checking `iterator_traits`)_
+* `template <typename T> struct` **`IsRange`**
+* `template <typename T> constexpr bool` **`is_range`** `= IsRange<T>::value`
+    * _True if the type is a range (detected by checking for `begin()` and `end()`)_
 
 Iterator and range type detectors.
 
-* `namespace RS::Meta`
-    * `template <typename Iterator> struct` **`IteratorValue`**
-    * `template <typename Range> struct` **`RangeIterator`**
-    * `template <typename Range> struct` **`RangeValue`**
+* `template <typename Iterator> using` **`IteratorValue`**
+* `template <typename Range> using` **`RangeIterator`**
+* `template <typename Range> using` **`RangeValue`**
 
-These return the types associated with an iterator or range. They are
-extracted by checking the return type of `begin()`, and do not require a
-specialization of `iterator_traits` to exist.
+These return the types associated with an iterator or range. The iterator
+types are are extracted by checking the return type of `begin()`, and do not
+require a specialization of `iterator_traits` to exist. The `RangeValue` type
+will return `Range::value_type` if it exists and is not `void`; otherwise it
+will obtain the type from a dereferenced iterator.
 
 ## Mixin types ##
 
@@ -338,14 +432,13 @@ supply the standard member types:
 ## Range types ##
 
 * `template <typename Iterator> struct` **`Irange`**
-    * `using Irange::`**`iterator`** `= Iterator`
-    * `using Irange::`**`value_type`** `= [Iterator's value type]`
     * `Iterator Irange::`**`first`**
     * `Iterator Irange::`**`second`**
     * `constexpr Iterator Irange::`**`begin`**`() const { return first; }`
     * `constexpr Iterator Irange::`**`end`**`() const { return second; }`
     * `constexpr bool Irange::`**`empty`**`() const { return first == second; }`
     * `constexpr size_t Irange::`**`size`**`() const { return std::distance(first, second); }`
+    * `template <typename I2> operator Irange<I2>() const noexcept { return {first, second}; }`
 * `template <typename Iterator> constexpr Irange<Iterator>` **`irange`**`(const Iterator& i, const Iterator& j)`
 * `template <typename Iterator> constexpr Irange<Iterator>` **`irange`**`(const pair<Iterator, Iterator>& p)`
 
@@ -365,11 +458,11 @@ meaning.
 
 Simple wrapper functions to create a mutex lock.
 
-* `enum class` **`Scope`**
-    * `Scope::`**`exit`**
-    * `Scope::`**`fail`**
-    * `Scope::`**`success`**
-* `template <typename F, Scope S> class` **`BasicScopeGuard`**
+* `enum class` **`ScopeState`**
+    * `ScopeState::`**`exit`**
+    * `ScopeState::`**`fail`**
+    * `ScopeState::`**`success`**
+* `template <typename F, ScopeState S> class` **`BasicScopeGuard`**
     * `BasicScopeGuard::`**`BasicScopeGuard`**`() noexcept`
     * `BasicScopeGuard::`**`BasicScopeGuard`**`(F&& f)`
     * `BasicScopeGuard::`**`BasicScopeGuard`**`(BasicScopeGuard&& sg) noexcept`
@@ -377,12 +470,12 @@ Simple wrapper functions to create a mutex lock.
     * `BasicScopeGuard& BasicScopeGuard::`**`operator=`**`(F&& f)`
     * `BasicScopeGuard& BasicScopeGuard::`**`operator=`**`(BasicScopeGuard&& sg) noexcept`
     * `void BasicScopeGuard::`**`release`**`() noexcept`
-* `using` **`ScopeExit`** `= BasicScopeGuard<std::function<void()>, Scope::exit>`
-* `using` **`ScopeFail`** `= BasicScopeGuard<std::function<void()>, Scope::fail>`
-* `using` **`ScopeSuccess`** `= BasicScopeGuard<std::function<void()>, Scope::success>`
-* `template <typename F> BasicScopeGuard<F, Scope::exit>` **`scope_exit`**`(F&& f)`
-* `template <typename F> BasicScopeGuard<F, Scope::fail>` **`scope_fail`**`(F&& f)`
-* `template <typename F> BasicScopeGuard<F, Scope::success>` **`scope_success`**`(F&& f)`
+* `using` **`ScopeExit`** `= BasicScopeGuard<std::function<void()>, ScopeState::exit>`
+* `using` **`ScopeFail`** `= BasicScopeGuard<std::function<void()>, ScopeState::fail>`
+* `using` **`ScopeSuccess`** `= BasicScopeGuard<std::function<void()>, ScopeState::success>`
+* `template <typename F> BasicScopeGuard<F, ScopeState::exit>` **`scope_exit`**`(F&& f)`
+* `template <typename F> BasicScopeGuard<F, ScopeState::fail>` **`scope_fail`**`(F&& f)`
+* `template <typename F> BasicScopeGuard<F, ScopeState::success>` **`scope_success`**`(F&& f)`
 
 The scope guard class stores a function object, to be called when the guard is
 destroyed. The three functions create scope guards with different execution
@@ -477,6 +570,10 @@ string of `n` null characters, instead of undefined behaviour.
 Returns the length of a null-terminated string (a generalized version of
 `strlen()`). This will return zero if the pointer is null.
 
+* `Ustring` **`dent`**`(size_t depth)`
+
+Returns a string containing `4*depth` spaces, for indentation.
+
 * `template <typename Range> Ustring` **`format_list`**`(const Range& r)`
 * `template <typename Range> Ustring` **`format_list`**`(const Range& r, std::string_view prefix, std::string_view delimiter, std::string_view suffix)`
 * `template <typename Range> Ustring` **`format_map`**`(const Range& r)`
@@ -541,24 +638,77 @@ tag is ignored. These will throw `std::invalid_argument` if the string does
 not start with a valid number, or `std::range_error` if the result is too big
 for the return type.
 
+* `Ustring` **`unqualify`**`(Uview str, Uview delims = ".:")`
+
+Strips off any prefix ending in one of the delimiter characters (e.g.
+`unqualify("foo::bar::zap()")` returns `"zap()"`). This will return the
+original string unchanged if the delimiter string is empty or none of its
+characters are found.
+
+* `template <typename T> bool` **`from_str`**`(std::string_view view, T& t) noexcept`
+* `template <typename T> T` **`from_str`**`(std::string_view view)`
 * `template <typename T> std::string` **`to_str`**`(const T& t)`
+* `template <typename T> struct` **`FromStr`**
+    * `T FromStr::`**`operator()`**`(std::string_view s) const`
+* `struct` **`ToStr`**
+    * `template <typename T> std::string ToStr::`**`operator()`**`(const T& t) const`
 
-Formats an object as a string. This uses the following rules for formatting
-various types:
+Generic utility functions for converting arbitrary types to or from a string.
+The conversion rules are described below; `to_str()` and the first version of
+`from_str()` can also be overloaded for new types. The `FromStr` and `ToStr`
+function objects call the corresponding functions and do not need to be
+separately overloaded.
 
-* `bool` - Written as `"true"` or `"false"`.
-* Integer types (other than `char`) - Formatted using `dec()`.
-* Floating point types - Formatted using `fp_format()`.
-* Strings and string-like types - The string content is simply copied verbatim; a null character pointer is treated as an empty string.
-* Exceptions derived from `std::exception` - Calls the exception's `what()` method.
-* Arrays and vectors of bytes (`unsigned char`) - Formatted in hexadecimal.
-* Ranges (other than strings and byte arrays) - Serialized in the same format as `format_list()` above, or `format_map()` if the value type is a pair.
-* Pairs and tuples - Formatted as a comma delimited list, enclosed in parentheses.
-* Otherwise - Call the type's output operator, or fail to compile if it does not have one.
+The first version of `from_str()` writes the converted object into its second
+argument and returns true on success; otherwise, it returns false and leaves
+the referenced object unchanged. The second version calls the first version,
+throwing `invalid_argument` on failure, and returning the converted object on
+success. `T` must be default constructible.
 
-"String-like types" are defined as `std::string`, `std::string_view`, plain
-`char`, character pointers, and anything with an implicit conversion to
-`std::string` or `std::string_view`.
+The `from_str()` functions follow these rules, using the first conversion rule
+that matches the type:
+
+* An empty string yields a default constructed `T`
+* If `T` is `bool`, check for the strings `"true"` or `"false"`, otherwise treat as numeric
+* If `T` is a primitive integer or floating point type, call the appropriate `strto*()` function
+* If `T` is an enumeration defined with `RS_ENUM[_CLASS]()`, call its `str_to_enum()` function
+* Try a `static_cast` from `std::string_view`, `std::string`, or `const char*` to `T`
+* Read a `T` from a `std::istringstream` using `operator>>`
+* Otherwise fail
+
+The `to_str()` functions follow these rules, using the first conversion rule
+that matches the type:
+
+* If `T` is `bool`, return `"true"` or `"false"`
+* If `T` is `char`, return a one-character string
+* If `T` is `std::string` or `std::string_view`, simply copy the string
+* If `T` is `[const] char*`, copy the string, or return an empty string if the pointer is null
+* If `T` is `std::array<uint8_t,N>` or `std::vector<uint8_t>`, format each byte in hexadecimal
+* If `T` is an integer type, call `std::to_string(t)`
+* If `T` is a floating point type, call `fp_format(t)`
+* Call `t.str()`, `to_string(t)`, or `std::to_string(t)`
+* `static_cast` from `T` to `std::string`, `std::string_view`, or `const char*`
+* If `T` is derived from `std::exception`, call `t.what()`
+* If `T` is a `std::optional`, `std::shared_ptr`, or `std::unique_ptr`, return `to_str(*t)` or `"null"`
+* If `T` is a `std::pair` or `std::tuple`, call `to_str()` on each element and return `"(e1,e2,...)"`
+* If `T` is a range whose elements are pairs, call `to_str()` on each member of each pair and return `"{k1:v1,k2:v2,...}"`
+* If `T` is a range whose elements are not pairs, call `to_str()` on each element and return `"[e1,e2,...]"`
+* Write a `T` into a `std::ostringstream` using `operator<<`
+* If all else fails, just return the demangled type name
+
+## Type names ##
+
+* `std::string` **`demangle`**`(const std::string& name)`
+* `std::string` **`type_name`**`(const std::type_info& t)`
+* `std::string` **`type_name`**`(const std::type_index& t)`
+* `template <typename T> std::string` **`type_name`**`()`
+* `template <typename T> std::string` **`type_name`**`(const T& t)`
+
+Demangle a type name. The original mangled name can be supplied as an explicit
+string, as a `std::type_info` or `std:type_index` object, as a type argument
+to a template function (e.g. `type_name<int>()`), or as an object whose type
+is to be named (e.g. `type_name(42)`). The last version will report the
+dynamic type of the referenced object.
 
 ## Version number ##
 

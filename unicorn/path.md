@@ -70,6 +70,7 @@ of `"/foo/bar/hello.txt"`, or `"C:\foo\bar\hello.txt"`, is `"hello.txt"`).
 
 * `using Path::`**`character_type`** `= [char on Unix, wchar_t on Windows]`
 * `using Path::`**`flag_type`** `= [unsigned integer type]`
+* `using Path::`**`host_string_type`** `= [std::wstring on Cygwin, otherwise the same as string_type]`
 * `using Path::`**`id_type`** `= std::pair<uint64_t, uint64_t>`
 * `using Path::`**`string_type`** `= [std::string on Unix, std::wstring on Windows]`
 * `using Path::`**`string_view_type`** `= [std::string_view on Unix, std::wstring_view on Windows]`
@@ -201,7 +202,13 @@ step.
 * `string_view_type Path::`**`os_view`**`() const noexcept`
 * `const character_type* Path::`**`c_name`**`() const noexcept`
 
-These return the full path in its native form, with no conversion.
+These return the full path in its native OS form, with no conversion.
+
+* `host_string_type Path::`**`native_name`**`() const`
+
+On Cygwin, this returns the underlying NTFS file name as a `std::wstring`, and
+may throw `system_error` if there is a problem retrieving this. On any other
+host, this is a synonym for `os_name()`.
 
 * `Ustring Path::`**`as_url`**`(flag_type flags = Utf::replace) const`
 
@@ -265,8 +272,10 @@ Hash function. This simply returns the standard hash of the internal string.
 Returns a relative path locating the current path relative to the given base
 path. The current and base paths must be either both absolute or both
 relative; if they are relative, they are assumed to be relative to the same
-origin. This will throw `std::invalid_argument` if the current path and base
-path are not both absolute or both relative.
+origin. On Windows, if the two paths are absolute and have different drive
+prefixes, the original absolute path will be returned unchanged. This will
+throw `std::invalid_argument` if the current path and base path are not both
+absolute or both relative.
 
 * `std::pair<Ustring, Ustring> Path::`**`split_leaf`**`() const`
 * `std::pair<string_type, string_type> Path::`**`split_os_leaf`**`() const`

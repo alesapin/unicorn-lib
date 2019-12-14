@@ -345,8 +345,8 @@ necessary encoding conversions.</p>
 </div>
 <div class="defns">
 <ul>
-<li><code>Ustring&gt;</code> <strong><code>str_char</code></strong><code>(char32_t c)</code></li>
-<li><code>Ustring&gt;</code> <strong><code>str_chars</code></strong><code>(size_t n, char32_t c)</code></li>
+<li><code>Ustring</code> <strong><code>str_char</code></strong><code>(char32_t c)</code></li>
+<li><code>Ustring</code> <strong><code>str_chars</code></strong><code>(size_t n, char32_t c)</code></li>
 </ul>
 <p>Return a string containing <code>n</code> copies of the character.</p>
 </div>
@@ -544,10 +544,11 @@ source string is not), a single string will be written.</p>
 <div class="defns">
 <ul>
 <li><code>template &lt;typename OutIter&gt; void</code> <strong><code>str_split_lines</code></strong><code>(const Ustring&amp; src, OutIter dst)</code></li>
+<li><code>Strings</code> <strong><code>str_splitv_lines</code></strong><code>(const Ustring&amp; src)</code></li>
 </ul>
-<p>Splits a string at each line break, copying lines into the output iterator.
-Any character that passes <code>char_is_line_break()</code> is counted as a line break.
-The line break characters are not included in the output strings. The <code>CR+LF</code>
+<p>Split a string at each line break, copying lines into the output iterator. Any
+character that passes <code>char_is_line_break()</code> is counted as a line break. The
+line break characters are not included in the output strings. The <code>CR+LF</code>
 combination is counted as a single line break; any other sequence of multiple
 line breaks will generate empty lines in the output. An empty line will not be
 generated at the end if the last character in the input was a line break.</p>
@@ -647,15 +648,24 @@ not already there.</p>
 </div>
 <div class="defns">
 <ul>
+<li><code>class</code> <strong><code>Wrap</code></strong><ul>
+<li><em>Keyword arguments (see below)</em></li>
+<li><code>Wrap::</code><strong><code>Wrap</code></strong><code>()</code></li>
+<li><code>template &lt;typename... Args&gt; Wrap::</code><strong><code>Wrap</code></strong><code>(Args... args)</code></li>
+<li><code>Ustring Wrap::</code><strong><code>wrap</code></strong><code>(const Ustring&amp; src) const</code></li>
+<li><code>void Wrap::</code><strong><code>wrap_in</code></strong><code>(Ustring&amp; src) const</code></li>
+<li><code>Ustring Wrap::</code><strong><code>operator()</code></strong><code>(const Ustring&amp; src) const</code></li>
+</ul>
+</li>
 <li><code>template &lt;typename... Args&gt; Ustring</code> <strong><code>str_wrap</code></strong><code>(const Ustring&amp; str, Args... args)</code></li>
 <li><code>template &lt;typename... Args&gt; void</code> <strong><code>str_wrap_in</code></strong><code>(Ustring&amp; str, Args... args)</code></li>
 </ul>
-<p>Wrap the text in a string to a given width. Wrapping is done separately for
-each paragraph; paragraphs are delimited by two or more line breaks (as usual,
-<code>CR+LF</code> is counted as a single line break), or a single paragraph separator
-character (<code>U+2029</code>). Words are simply delimited by whitespace, which may not
-be appropriate for all languages; no attempt is made at anything more
-sophisticated such as hyphenation or locale-specific word breaking rules.</p>
+<p>The <code>Wrap</code> class, and the two <code>str_wrap*()</code> functions, wrap the text in a
+string to a given width. The class stores a set of wrapping parameters,
+supplied as keyword arguments to the constructor; the two free functions may
+be more convenient when only a single call is needed and the parameters do not
+need to be saved. The function call operator is equivalent to the <code>wrap()</code>
+method.</p>
 <p>The following keyword arguments are recognised:</p>
 <table>
 <thead>
@@ -674,6 +684,12 @@ sophisticated such as hyphenation or locale-specific word breaking rules.</p>
 <td><code>false</code></td>
 </tr>
 <tr>
+<td><code>Wrap::</code><strong><code>lines</code></strong></td>
+<td><code>bool</code></td>
+<td>Treat every line as a paragraph</td>
+<td><code>false</code></td>
+</tr>
+<tr>
 <td><code>Wrap::</code><strong><code>preserve</code></strong></td>
 <td><code>bool</code></td>
 <td>Preserve layout on already indented lines</td>
@@ -683,7 +699,7 @@ sophisticated such as hyphenation or locale-specific word breaking rules.</p>
 <td><code>Wrap::</code><strong><code>flags</code></strong></td>
 <td><code>uint32_t</code></td>
 <td>Flags for string length</td>
-<td><code>Length::characters</code></td>
+<td><code>Length::graphemes</code></td>
 </tr>
 <tr>
 <td><code>Wrap::</code><strong><code>margin</code></strong></td>
@@ -706,27 +722,39 @@ sophisticated such as hyphenation or locale-specific word breaking rules.</p>
 <tr>
 <td><code>Wrap::</code><strong><code>newline</code></strong></td>
 <td><code>Ustring</code></td>
-<td>Line break</td>
+<td>Line break on output</td>
 <td><code>"\n"</code></td>
+</tr>
+<tr>
+<td><code>Wrap::</code><strong><code>newpara</code></strong></td>
+<td><code>Ustring</code></td>
+<td>Paragraph break on output</td>
+<td>two <code>newline</code></td>
 </tr>
 </tbody>
 </table>
-<p>By default, the width is set to two characters less than the current terminal
-width, obtained from the <code>COLUMNS</code> environment variable; the terminal width is
-assumed to be 80 characters if <code>COLUMNS</code> is undefined or invalid. The <code>margin</code>
-and <code>margin2</code> arguments determine the number of spaces used to indent the
-first and subsequent lines, respectively, of a paragraph (the width includes
-the indentation); if <code>margin2</code> is not supplied, it defaults to the same value
-as <code>margin</code>. The function will throw <code>std::length_error</code> if either margin is
-greater than or equal to the width.</p>
+<p>Wrapping is done separately for each paragraph. Words are simply delimited by
+whitespace, which may not be appropriate for all languages; no attempt is made
+at anything more sophisticated such as hyphenation or locale-specific word
+breaking rules.</p>
+<p>Paragraphs are normally delimited by two or more line breaks; if the <code>lines</code>
+flag is set, every line break is interpreted as a paragraph break. As usual,
+<code>CR+LF</code> is counted as a single line break.</p>
 <p>Width is measured using the usual rules for string length, controlled by the
-<code>flags</code> argument.</p>
-<p>The <code>newline</code> value is used for all line breaks on output; any line breaking
-already present in the input text is discarded. Paragraph breaks are replaced
-with two line breaks, regardless of their original spelling; a single line
-break is inserted at the end of the output. If the <code>preserve</code> flag is used,
-any paragraphs that start with an indented line are left in their original
-layout.</p>
+<code>flags</code> argument. By default, the width is set to two characters less than the
+current terminal width, obtained from the <code>COLUMNS</code> environment variable; the
+terminal width is assumed to be 80 characters if <code>COLUMNS</code> is undefined or
+invalid. The <code>margin</code> and <code>margin2</code> arguments determine the number of spaces
+used to indent the first and subsequent lines, respectively, of a paragraph
+(the width includes the indentation); if <code>margin2</code> is not supplied, it
+defaults to the same value as <code>margin</code>. The function will throw
+<code>std::length_error</code> if either margin is greater than or equal to the width.</p>
+<p>The <code>newline</code> value is used for all line breaks in the output; any line
+breaking already present in the input text is discarded. The <code>newpara</code> value
+is used for paragraph breaks in the output; the default is two line breaks. A
+single line break is inserted at the end of the output. If the <code>preserve</code> flag
+is used, any paragraphs that start with an indented line are left in their
+original layout.</p>
 <p>If a single word is too long to fit on one line, the default behaviour is to
 allow it to violate the right margin. If the <code>enforce</code> flag is used, this will
 cause the function to throw <code>std::length_error</code> instead.</p>
@@ -742,6 +770,8 @@ cause the function to throw <code>std::length_error</code> instead.</p>
 <li><code>void</code> <strong><code>str_titlecase_in</code></strong><code>(Ustring&amp; str)</code></li>
 <li><code>Ustring</code> <strong><code>str_casefold</code></strong><code>(const Ustring&amp; str)</code></li>
 <li><code>void</code> <strong><code>str_casefold_in</code></strong><code>(Ustring&amp; str)</code></li>
+<li><code>Ustring</code> <strong><code>str_case</code></strong><code>(const Ustring&amp; str, Case c)</code></li>
+<li><code>void</code> <strong><code>str_case_in</code></strong><code>(Ustring&amp; str, Case c)</code></li>
 </ul>
 <p>These convert a string to upper case, lower case, title case, or the case
 folded form (the form recommended by Unicode for case insensitive string

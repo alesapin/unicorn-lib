@@ -94,6 +94,7 @@ of <code>"/foo/bar/hello.txt"</code>, or <code>"C:\foo\bar\hello.txt"</code>, is
 <ul>
 <li><code>using Path::</code><strong><code>character_type</code></strong> <code>= [char on Unix, wchar_t on Windows]</code></li>
 <li><code>using Path::</code><strong><code>flag_type</code></strong> <code>= [unsigned integer type]</code></li>
+<li><code>using Path::</code><strong><code>host_string_type</code></strong> <code>= [std::wstring on Cygwin, otherwise the same as string_type]</code></li>
 <li><code>using Path::</code><strong><code>id_type</code></strong> <code>= std::pair&lt;uint64_t, uint64_t&gt;</code></li>
 <li><code>using Path::</code><strong><code>string_type</code></strong> <code>= [std::string on Unix, std::wstring on Windows]</code></li>
 <li><code>using Path::</code><strong><code>string_view_type</code></strong> <code>= [std::string_view on Unix, std::wstring_view on Windows]</code></li>
@@ -253,7 +254,15 @@ step.</p>
 <li><code>string_view_type Path::</code><strong><code>os_view</code></strong><code>() const noexcept</code></li>
 <li><code>const character_type* Path::</code><strong><code>c_name</code></strong><code>() const noexcept</code></li>
 </ul>
-<p>These return the full path in its native form, with no conversion.</p>
+<p>These return the full path in its native OS form, with no conversion.</p>
+</div>
+<div class="defns">
+<ul>
+<li><code>host_string_type Path::</code><strong><code>native_name</code></strong><code>() const</code></li>
+</ul>
+<p>On Cygwin, this returns the underlying NTFS file name as a <code>std::wstring</code>, and
+may throw <code>system_error</code> if there is a problem retrieving this. On any other
+host, this is a synonym for <code>os_name()</code>.</p>
 </div>
 <div class="defns">
 <ul>
@@ -337,8 +346,10 @@ recognized on Cygwin); on Windows, this checks for a drive letter (e.g.
 <p>Returns a relative path locating the current path relative to the given base
 path. The current and base paths must be either both absolute or both
 relative; if they are relative, they are assumed to be relative to the same
-origin. This will throw <code>std::invalid_argument</code> if the current path and base
-path are not both absolute or both relative.</p>
+origin. On Windows, if the two paths are absolute and have different drive
+prefixes, the original absolute path will be returned unchanged. This will
+throw <code>std::invalid_argument</code> if the current path and base path are not both
+absolute or both relative.</p>
 </div>
 <div class="defns">
 <ul>

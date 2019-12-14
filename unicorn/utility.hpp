@@ -52,9 +52,12 @@
 #include <exception>
 #include <functional>
 #include <iostream>
+#include <istream>
 #include <iterator>
 #include <limits>
 #include <mutex>
+#include <new>
+#include <optional>
 #include <ostream>
 #include <shared_mutex>
 #include <sstream>
@@ -63,10 +66,37 @@
 #include <string_view>
 #include <system_error>
 #include <tuple>
+#include <typeindex>
+#include <typeinfo>
 #include <type_traits>
 #include <utility>
 #include <vector>
 #include <sys/sysmacros.h>
+
+#ifdef __GNUC__
+    #include <cxxabi.h>
+#endif
+
+// GNU brain damage
+
+#ifdef major
+    #undef major
+#endif
+#ifdef minor
+    #undef minor
+#endif
+
+// Microsoft brain damage
+
+#ifdef pascal
+    #undef pascal
+#endif
+
+#ifdef _MSC_VER
+    #pragma warning(disable: 4127) // Conditional expression is constant
+    #pragma warning(disable: 4310) // Cast truncates constant value
+    #pragma warning(disable: 4459) // Declaration hides global declaration
+#endif
 
 // Preprocessor macros
 
@@ -78,22 +108,46 @@
     #endif
 #endif
 
+#define RS_BITMASK_OPERATORS(E) \
+    constexpr RS_ATTR_UNUSED bool operator!(E x) noexcept { return std::underlying_type_t<E>(x) == 0; } \
+    constexpr RS_ATTR_UNUSED E operator~(E x) noexcept { return E(~ std::underlying_type_t<E>(x)); } \
+    constexpr RS_ATTR_UNUSED E operator&(E lhs, E rhs) noexcept { using U = std::underlying_type_t<E>; return E(U(lhs) & U(rhs)); } \
+    constexpr RS_ATTR_UNUSED E operator|(E lhs, E rhs) noexcept { using U = std::underlying_type_t<E>; return E(U(lhs) | U(rhs)); } \
+    constexpr RS_ATTR_UNUSED E operator^(E lhs, E rhs) noexcept { using U = std::underlying_type_t<E>; return E(U(lhs) ^ U(rhs)); } \
+    constexpr RS_ATTR_UNUSED E& operator&=(E& lhs, E rhs) noexcept { return lhs = lhs & rhs; } \
+    constexpr RS_ATTR_UNUSED E& operator|=(E& lhs, E rhs) noexcept { return lhs = lhs | rhs; } \
+    constexpr RS_ATTR_UNUSED E& operator^=(E& lhs, E rhs) noexcept { return lhs = lhs ^ rhs; }
+
 #ifndef RS_ENUM
     #define RS_ENUM_IMPLEMENTATION(EnumType, IntType, class_tag, name_prefix, first_value, first_name, ...) \
-        enum class_tag EnumType: IntType { RS_enum_begin = first_value, first_name = first_value, __VA_ARGS__, RS_enum_end }; \
-        constexpr RS_ATTR_UNUSED bool enum_is_valid(EnumType t) noexcept { return t >= EnumType::RS_enum_begin && t < EnumType::RS_enum_end; } \
-        inline RS_ATTR_UNUSED bool str_to_enum(std::string_view s, EnumType& t) noexcept \
-            { return ::RS::RS_Detail::enum_from_str(s, t, #EnumType "::", #first_name "," #__VA_ARGS__); } \
-        inline RS_ATTR_UNUSED std::string to_str(EnumType t) { return ::RS::RS_Detail::enum_to_str(t, name_prefix, #first_name "," #__VA_ARGS__); } \
+        enum class_tag EnumType: IntType { \
+            RS_##EnumType##_begin_ = first_value, \
+            first_name = first_value, \
+            __VA_ARGS__, \
+            RS_##EnumType##_end_ \
+        }; \
+        constexpr RS_ATTR_UNUSED bool enum_is_valid(EnumType t) noexcept { \
+            return t >= EnumType::RS_##EnumType##_begin_ && t < EnumType::RS_##EnumType##_end_; \
+        } \
+        inline RS_ATTR_UNUSED std::vector<EnumType> make_enum_values(EnumType) { \
+            static constexpr size_t n = size_t(IntType(EnumType::RS_##EnumType##_end_) - IntType(first_value)); \
+            std::vector<EnumType> v; \
+            v.reserve(n); \
+            for (IntType i = first_value; i < IntType(EnumType::RS_##EnumType##_end_); ++i) \
+                v.push_back(EnumType(i)); \
+            return v; \
+        } \
+        inline RS_ATTR_UNUSED bool str_to_enum(std::string_view s, EnumType& t) noexcept { \
+            return ::RS::RS_Detail::enum_from_str(s, t, EnumType::RS_##EnumType##_begin_, #EnumType "::", #first_name "," #__VA_ARGS__); \
+        } \
+        inline RS_ATTR_UNUSED std::string to_str(EnumType t) { \
+            return ::RS::RS_Detail::enum_to_str(t, EnumType::RS_##EnumType##_begin_, EnumType::RS_##EnumType##_end_, name_prefix, #first_name "," #__VA_ARGS__); \
+        } \
         inline RS_ATTR_UNUSED std::ostream& operator<<(std::ostream& out, EnumType t) { return out << to_str(t); }
     #define RS_ENUM(EnumType, IntType, first_value, first_name, ...) \
         RS_ENUM_IMPLEMENTATION(EnumType, IntType,, "", first_value, first_name, __VA_ARGS__)
     #define RS_ENUM_CLASS(EnumType, IntType, first_value, first_name, ...) \
         RS_ENUM_IMPLEMENTATION(EnumType, IntType, class, #EnumType "::", first_value, first_name, __VA_ARGS__)
-#endif
-
-#ifndef RS_LDLIB
-    #define RS_LDLIB(libs)
 #endif
 
 #ifndef RS_MOVE_ONLY
@@ -113,16 +167,28 @@
 #endif
 
 #ifndef RS_NO_INSTANCE
-    #define RS_NO_INSTANCE(T) \
-        T() = delete; \
-        T(const T&) = delete; \
-        T(T&&) = delete; \
-        ~T() = delete; \
-        T& operator=(const T&) = delete; \
-        T& operator=(T&&) = delete;
+    #if defined(__GNUC__) && __GNUC__ < 9
+        #define RS_NO_INSTANCE(T) \
+            T() = delete; \
+            T(const T&) = delete; \
+            T(T&&) = delete; \
+            T& operator=(const T&) = delete; \
+            T& operator=(T&&) = delete;
+    #else
+        #define RS_NO_INSTANCE(T) \
+            T() = delete; \
+            T(const T&) = delete; \
+            T(T&&) = delete; \
+            ~T() = delete; \
+            T& operator=(const T&) = delete; \
+            T& operator=(T&&) = delete;
+    #endif
 #endif
 
+#define RS_OVERLOAD(f) [] (auto&&... args) { return f(std::forward<decltype(args)>(args)...); }
+
 // Must be used in the global namespace
+
 #ifndef RS_DEFINE_STD_HASH
     #define RS_DEFINE_STD_HASH(T) \
         namespace std { \
@@ -134,7 +200,92 @@
         }
 #endif
 
+// Link control
+
+#define RS_LDLIB(libs)
+
+// This instructs the makefile to link with one or more static libraries.
+// Specify library names without the -l prefix (e.g. RS_LDLIB(foo) will link
+// with -lfoo). If link order is important for a particular set of libraries,
+// supply them in a space delimited list in a single RS_LDLIB() line.
+
+// Libraries that are needed only on specific targets can be prefixed with one
+// of the target identifiers listed below, e.g. RS_LDLIB(apple:foo) will link
+// with -lfoo for Apple targets only. Only one target can be specified per
+// invocation; if the same libraries are needed on multiple targets, but not
+// on all targets, you will need a separate RS_LDLIB() line for each target.
+
+// * apple:
+// * cygwin:
+// * linux:
+// * msvc:
+
+// RS_LDLIB() lines are picked up at the "make dep" stage; if you change a
+// link library, the change will not be detected until dependencies are
+// regenerated.
+
 namespace RS {
+
+    // Basic types
+
+    #ifdef _XOPEN_SOURCE
+        using NativeCharacter = char;
+    #else
+        #define RS_NATIVE_WCHAR 1
+        using NativeCharacter = wchar_t;
+    #endif
+
+    #if WCHAR_MAX < 0x7fffffff
+        #define RS_WCHAR_UTF16 1
+        using WcharEquivalent = char16_t;
+    #else
+        #define RS_WCHAR_UTF32 1
+        using WcharEquivalent = char32_t;
+    #endif
+
+    using Ustring = std::string;
+    using Uview = std::string_view;
+    using Strings = std::vector<std::string>;
+    using NativeString = std::basic_string<NativeCharacter>;
+    using WstringEquivalent = std::basic_string<WcharEquivalent>;
+
+    template <auto> class IncompleteTemplate;
+    class IncompleteType;
+    template <auto> class CompleteTemplate { RS_NO_INSTANCE(CompleteTemplate); };
+    class CompleteType { RS_NO_INSTANCE(CompleteType); };
+
+    // Constants
+
+    constexpr const char* ascii_whitespace = "\t\n\v\f\r ";
+    constexpr size_t npos = size_t(-1);
+
+    #if defined(_WIN32) || (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+        constexpr bool big_endian_target = false;
+        constexpr bool little_endian_target = true;
+    #else
+        constexpr bool big_endian_target = true;
+        constexpr bool little_endian_target = false;
+    #endif
+
+    template <typename T> constexpr bool dependent_false = false;
+
+    namespace RS_Detail {
+
+        template <int N> using SetBitType =
+            std::conditional_t<(N < 8), uint8_t,
+            std::conditional_t<(N < 16), uint16_t,
+            std::conditional_t<(N < 32), uint32_t,
+            std::conditional_t<(N < 64), uint64_t, void>>>>;
+
+    }
+
+    template <int N> constexpr RS_Detail::SetBitType<N> setbit = RS_Detail::SetBitType<N>(1) << N;
+
+    // Forward declarations
+
+    template <typename T> bool from_str(std::string_view view, T& t) noexcept;
+    template <typename T> T from_str(std::string_view view);
+    template <typename T> std::string to_str(const T& t);
 
     // Enumeration macro implementation
 
@@ -161,7 +312,7 @@ namespace RS {
         }
 
         template <typename EnumType>
-        bool enum_from_str(std::string_view s, EnumType& t, const char* prefix, const char* names) {
+        bool enum_from_str(std::string_view s, EnumType& t, EnumType begin, const char* prefix, const char* names) {
             using U = std::underlying_type_t<EnumType>;
             size_t psize = std::strlen(prefix);
             if (psize < s.size() && std::memcmp(s.data(), prefix, psize) == 0)
@@ -169,7 +320,7 @@ namespace RS {
             auto& names_vec = enum_str_list<EnumType>(names);
             for (auto& name: names_vec) {
                 if (s == name) {
-                    t = EnumType(U(EnumType::RS_enum_begin) + U(&name - names_vec.data()));
+                    t = EnumType(U(begin) + U(&name - names_vec.data()));
                     return true;
                 }
             }
@@ -177,10 +328,10 @@ namespace RS {
         }
 
         template <typename EnumType>
-        std::string enum_to_str(EnumType t, const char* prefix, const char* names) {
+        std::string enum_to_str(EnumType t, EnumType begin, EnumType end, const char* prefix, const char* names) {
             using U = std::underlying_type_t<EnumType>;
-            if (t >= EnumType::RS_enum_begin && t < EnumType::RS_enum_end)
-                return prefix + enum_str_list<EnumType>(names)[U(t) - U(EnumType::RS_enum_begin)];
+            if (t >= begin && t < end)
+                return prefix + enum_str_list<EnumType>(names)[U(t) - U(begin)];
             else
                 return std::to_string(U(t));
         }
@@ -189,68 +340,9 @@ namespace RS {
 
     template <typename EnumType>
     std::vector<EnumType> enum_values() {
-        static const std::vector<EnumType> enum_vec = [] {
-            using int_type = std::underlying_type_t<EnumType>;
-            int_type base = int_type(EnumType::RS_enum_begin), size = int_type(EnumType::RS_enum_end) - base;
-            std::vector<EnumType> vec(size, {});
-            for (int_type i = 0; i < size; ++i)
-                vec[i] = EnumType(base + i);
-            return vec;
-        }();
+        static const auto enum_vec = make_enum_values(EnumType());
         return enum_vec;
     }
-
-    template <typename EnumType>
-    std::vector<EnumType> enum_nonzero_values() {
-        static const std::vector<EnumType> enum_vec = [] {
-            using int_type = std::underlying_type_t<EnumType>;
-            int_type base = int_type(EnumType::RS_enum_begin), size = int_type(EnumType::RS_enum_end) - base;
-            std::vector<EnumType> vec;
-            for (int_type i = 0; i < size; ++i)
-                if (base + i != 0)
-                    vec.push_back(EnumType(base + i));
-            return vec;
-        }();
-        return enum_vec;
-    }
-
-    // Basic types
-
-    #ifdef _XOPEN_SOURCE
-        using NativeCharacter = char;
-    #else
-        #define RS_NATIVE_WCHAR 1
-        using NativeCharacter = wchar_t;
-    #endif
-
-    #if WCHAR_MAX < 0x7fffffff
-        #define RS_WCHAR_UTF16 1
-        using WcharEquivalent = char16_t;
-    #else
-        #define RS_WCHAR_UTF32 1
-        using WcharEquivalent = char32_t;
-    #endif
-
-    using Ustring = std::string;
-    using Uview = std::string_view;
-    using Strings = std::vector<std::string>;
-    using NativeString = std::basic_string<NativeCharacter>;
-    using WstringEquivalent = std::basic_string<WcharEquivalent>;
-
-    // Constants
-
-    constexpr const char* ascii_whitespace = "\t\n\v\f\r ";
-    constexpr size_t npos = size_t(-1);
-
-    #if defined(_WIN32) || (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
-        constexpr bool big_endian_target = false;
-        constexpr bool little_endian_target = true;
-    #else
-        constexpr bool big_endian_target = true;
-        constexpr bool little_endian_target = false;
-    #endif
-
-    template <typename T> constexpr bool dependent_false = false;
 
     // Error handling
 
@@ -269,43 +361,29 @@ namespace RS {
         // Walter E. Brown, N4502 Proposing Standard Library Support for the C++ Detection Idiom V2 (2015)
         // http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/n4502.pdf
 
-        namespace MetaDetail {
+        template <typename...> using VoidType = void;
 
-            template <typename...> using VoidType = void;
-
-            struct Nonesuch {
-                Nonesuch() = delete;
-                ~Nonesuch() = delete;
-                Nonesuch(const Nonesuch&) = delete;
-                Nonesuch(Nonesuch&&) = delete;
-                void operator=(const Nonesuch&) = delete;
-                void operator=(Nonesuch&&) = delete;
-            };
-
-            template <typename Default, typename, template <typename...> typename Archetype, typename... Args>
-            struct Detector {
-                using value_t = std::false_type;
-                using type = Default;
-            };
-
-            template <typename Default, template <typename...> typename Archetype, typename... Args>
-            struct Detector<Default, VoidType<Archetype<Args...>>, Archetype, Args...> {
-                using value_t = std::true_type;
-                using type = Archetype<Args...>;
-            };
-
-        }
+        template <typename Default, typename, template <typename...> typename Archetype, typename... Args>
+        struct Detector {
+            using value_t = std::false_type;
+            using type = Default;
+        };
+        template <typename Default, template <typename...> typename Archetype, typename... Args>
+        struct Detector<Default, VoidType<Archetype<Args...>>, Archetype, Args...> {
+            using value_t = std::true_type;
+            using type = Archetype<Args...>;
+        };
 
         template <template <typename...> typename Archetype, typename... Args>
-            using IsDetected = typename MetaDetail::Detector<MetaDetail::Nonesuch, void, Archetype, Args...>::value_t;
+            using IsDetected = typename Detector<CompleteType, void, Archetype, Args...>::value_t;
         template <template <typename...> typename Archetype, typename... Args>
             constexpr bool is_detected = IsDetected<Archetype, Args...>::value;
         template <template <typename...> typename Archetype, typename... Args>
-            using DetectedType = typename MetaDetail::Detector<MetaDetail::Nonesuch, void, Archetype, Args...>::type;
+            using DetectedType = typename Detector<CompleteType, void, Archetype, Args...>::type;
 
         // Return nested type if detected, otherwise default
         template <typename Default, template <typename...> typename Archetype, typename... Args>
-            using DetectedOr = typename MetaDetail::Detector<Default, void, Archetype, Args...>::type;
+            using DetectedOr = typename Detector<Default, void, Archetype, Args...>::type;
 
         // Detect only if it yields a specific return type
         template <typename Result, template <typename...> typename Archetype, typename... Args>
@@ -350,11 +428,15 @@ namespace RS {
             template <typename T, bool Adl> struct RangeIteratorType<T, true, Adl> { using type = decltype(std::begin(std::declval<T&>())); };
             template <typename T> struct RangeIteratorType<T, false, true> { using type = decltype(begin(std::declval<T&>())); };
 
+            template <typename T> using HasValueTypeArchetype = typename T::value_type;
+            template <typename T, bool Val = IsDetected<HasValueTypeArchetype, T>::value> struct RangeValueType { using type = typename T::value_type; };
+            template <typename T> struct RangeValueType<T, false> { using type = typename IteratorValueType<typename RangeIteratorType<T>::type>::type; };
+
         }
 
         template <typename T> using IteratorValue = typename MetaDetail::IteratorValueType<T>::type;
         template <typename T> using RangeIterator = typename MetaDetail::RangeIteratorType<T>::type;
-        template <typename T> using RangeValue = IteratorValue<RangeIterator<T>>;
+        template <typename T> using RangeValue = typename MetaDetail::RangeValueType<T>::type;
 
     }
 
@@ -441,16 +523,26 @@ namespace RS {
 
     // Algorithms
 
+    namespace RS_Detail {
+
+        template <typename CT, typename VT> using HasPushBackArchetype = decltype(std::declval<CT>().push_back(std::declval<VT>()));
+
+    }
+
     template <typename Container, typename T>
     void append_to(Container& con, const T& t) {
-        con.insert(con.end(), t);
+        static constexpr bool has_push_back = Meta::is_detected<RS_Detail::HasPushBackArchetype, Container, T>;
+        if constexpr (has_push_back)
+            con.push_back(t);
+        else
+            con.insert(con.end(), t);
     }
 
     template <typename Container>
     class AppendIterator:
     public OutputIterator<AppendIterator<Container>> {
     public:
-        using value_type = typename Container::value_type;
+        using value_type = Meta::RangeValue<Container>;
         AppendIterator() = default;
         explicit AppendIterator(Container& c): con(&c) {}
         AppendIterator& operator=(const value_type& v) { append_to(*con, v); return *this; }
@@ -494,16 +586,10 @@ namespace RS {
     template <typename T> constexpr auto as_signed(T t) noexcept { return static_cast<std::make_signed_t<T>>(t); }
     template <typename T> constexpr auto as_unsigned(T t) noexcept { return static_cast<std::make_unsigned_t<T>>(t); }
 
-    template <typename T, typename T2, typename T3>
-    constexpr T clamp(const T& x, const T2& min, const T3& max) noexcept {
-        static_assert(std::is_convertible<T2, T>::value && std::is_convertible<T3, T>::value);
-        return x < T(min) ? T(min) : T(max) < x ? T(max) : x;
-    }
-
     #ifdef __GNUC__
 
         template <typename T>
-        constexpr int ibits(T t) noexcept {
+        constexpr int popcount(T t) noexcept {
             return __builtin_popcountll(uint64_t(t));
         }
 
@@ -515,7 +601,7 @@ namespace RS {
     #else
 
         template <typename T>
-        constexpr int ibits(T t) noexcept {
+        constexpr int popcount(T t) noexcept {
             static constexpr int8_t bits16[16] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4};
             int n = 0;
             for (; t; t >>= 4) { n += bits16[t & 0xf]; }
@@ -544,7 +630,7 @@ namespace RS {
 
     template <typename T>
     constexpr bool ispow2(T t) noexcept {
-        return ibits(t) == 1;
+        return popcount(t) == 1;
     }
 
     constexpr uint64_t letter_to_mask(char c) noexcept {
@@ -638,7 +724,7 @@ namespace RS {
     inline Ustring format_date(std::chrono::system_clock::time_point tp, Uview format, uint32_t flags = utc_zone) {
         using namespace std::chrono;
         uint32_t zone = flags & (utc_zone | local_zone);
-        if (ibits(zone) > 1 || flags - zone)
+        if (popcount(zone) > 1 || flags - zone)
             throw std::invalid_argument("Invalid date flags: 0x" + hex(flags, 1));
         if (format.empty())
             return {};
@@ -659,7 +745,7 @@ namespace RS {
     inline Ustring format_date(std::chrono::system_clock::time_point tp, int prec = 0, uint32_t flags = utc_zone) {
         using namespace std::literals;
         uint32_t zone = flags & (utc_zone | local_zone);
-        if (ibits(zone) > 1 || flags - zone)
+        if (popcount(zone) > 1 || flags - zone)
             throw std::invalid_argument("Invalid date flags: 0x" + hex(flags, 1));
         Ustring result = format_date(tp, "%Y-%m-%d %H:%M:%S"s, zone);
         if (prec > 0) {
@@ -710,7 +796,7 @@ namespace RS {
     inline std::chrono::system_clock::time_point make_date(int year, int month, int day, int hour = 0, int min = 0, double sec = 0, uint32_t flags = utc_zone) {
         using namespace std::chrono;
         uint32_t zone = flags & (utc_zone | local_zone);
-        if (ibits(zone) > 1 || flags - zone)
+        if (popcount(zone) > 1 || flags - zone)
             throw std::invalid_argument("Invalid date flags: 0x" + hex(flags, 1));
         double isec = 0, fsec = modf(sec, &isec);
         if (fsec < 0) {
@@ -758,13 +844,12 @@ namespace RS {
 
     template <typename Iterator>
     struct Irange {
-        using iterator = Iterator;
-        using value_type = typename std::iterator_traits<Iterator>::value_type;
         Iterator first, second;
-        constexpr Iterator begin() const { return first; }
-        constexpr Iterator end() const { return second; }
-        constexpr bool empty() const { return first == second; }
-        constexpr size_t size() const { return std::distance(first, second); }
+        constexpr Iterator begin() const noexcept { return first; }
+        constexpr Iterator end() const noexcept { return second; }
+        constexpr bool empty() const noexcept { return first == second; }
+        constexpr size_t size() const noexcept { return std::distance(first, second); }
+        template <typename I2> operator Irange<I2>() const noexcept { return {first, second}; }
     };
 
     template <typename Iterator> constexpr Irange<Iterator> irange(const Iterator& i, const Iterator& j) { return {i, j}; }
@@ -793,63 +878,76 @@ namespace RS {
 
     // Scope guards
 
-    enum class Scope { exit, fail, success };
+    enum class ScopeState {
+        exit,    // Invoke callback unconditionally in destructor
+        fail,    // Invoke callback when scope unwinding due to exception, but not on normal exit
+        success  // Invoke callback on normal exit, but not when scope unwinding due to exception
+    };
 
-    template <typename F, Scope S>
+    template <typename F, ScopeState S>
     class BasicScopeGuard {
     public:
         BasicScopeGuard() = default;
         BasicScopeGuard(F&& f) try:
-            func(std::forward<F>(f)), inflight(std::uncaught_exceptions()) {}
+            callback_(std::forward<F>(f)),
+            inflight_(std::uncaught_exceptions()) {}
             catch (...) {
-                if constexpr (S != Scope::success)
-                    try { f(); } catch (...) {}
+                if constexpr (S != ScopeState::success) {
+                    try { f(); }
+                    catch (...) {}
+                }
                 throw;
             }
         BasicScopeGuard(const BasicScopeGuard&) = delete;
-        BasicScopeGuard(BasicScopeGuard&& sg) noexcept:
-            func(std::move(sg.func)), inflight(std::exchange(sg.inflight, -1)) {}
+        BasicScopeGuard(BasicScopeGuard&& g) noexcept:
+            callback_(std::move(g.callback_)),
+            inflight_(std::exchange(g.inflight_, -1)) {}
         ~BasicScopeGuard() noexcept { close(); }
         BasicScopeGuard& operator=(const BasicScopeGuard&) = delete;
         BasicScopeGuard& operator=(F&& f) {
             close();
-            func = std::forward<F>(f);
-            inflight = std::uncaught_exceptions();
+            callback_ = std::forward<F>(f);
+            inflight_ = std::uncaught_exceptions();
             return *this;
         }
-        BasicScopeGuard& operator=(BasicScopeGuard&& sg) noexcept {
-            if (&sg != this) {
+        BasicScopeGuard& operator=(BasicScopeGuard&& g) noexcept {
+            if (&g != this) {
                 close();
-                func = std::move(sg.func);
-                inflight = std::exchange(sg.inflight, -1);
+                callback_ = std::move(g.callback_);
+                inflight_ = std::exchange(g.inflight_, -1);
             }
             return *this;
         }
-        void release() noexcept { inflight = -1; }
+        void release() noexcept { inflight_ = -1; }
     private:
-        F func;
-        int inflight = -1;
+        F callback_;
+        int inflight_ = -1;
         void close() noexcept {
-            if (inflight >= 0 && (S == Scope::exit || (S == Scope::fail) == (std::uncaught_exceptions() > inflight)))
-                try { func(); } catch (...) {}
-            inflight = -1;
+            if (inflight_ >= 0) {
+                bool call = true;
+                if constexpr (S == ScopeState::fail)
+                    call = std::uncaught_exceptions() > inflight_;
+                else if constexpr (S == ScopeState::success)
+                    call = std::uncaught_exceptions() <= inflight_;
+                if (call)
+                    try { callback_(); } catch (...) {}
+                inflight_ = -1;
+            }
         }
     };
 
-    using ScopeExit = BasicScopeGuard<std::function<void()>, Scope::exit>;
-    using ScopeFail = BasicScopeGuard<std::function<void()>, Scope::fail>;
-    using ScopeSuccess = BasicScopeGuard<std::function<void()>, Scope::success>;
+    using ScopeExit = BasicScopeGuard<std::function<void()>, ScopeState::exit>;
+    using ScopeFail = BasicScopeGuard<std::function<void()>, ScopeState::fail>;
+    using ScopeSuccess = BasicScopeGuard<std::function<void()>, ScopeState::success>;
 
-    template <typename F> inline BasicScopeGuard<F, Scope::exit> scope_exit(F&& f) { return BasicScopeGuard<F, Scope::exit>(std::forward<F>(f)); }
-    template <typename F> inline BasicScopeGuard<F, Scope::fail> scope_fail(F&& f) { return BasicScopeGuard<F, Scope::fail>(std::forward<F>(f)); }
-    template <typename F> inline BasicScopeGuard<F, Scope::success> scope_success(F&& f) { return BasicScopeGuard<F, Scope::success>(std::forward<F>(f)); }
+    template <typename F> inline auto scope_exit(F&& f) { return BasicScopeGuard<F, ScopeState::exit>(std::forward<F>(f)); }
+    template <typename F> inline auto scope_fail(F&& f) { return BasicScopeGuard<F, ScopeState::fail>(std::forward<F>(f)); }
+    template <typename F> inline auto scope_success(F&& f) { return BasicScopeGuard<F, ScopeState::success>(std::forward<F>(f)); }
 
     template <typename T> inline auto make_lock(T& t) { return std::unique_lock<T>(t); }
     template <typename T> inline auto make_shared_lock(T& t) { return std::shared_lock<T>(t); }
 
     // String functions
-
-    template <typename T> Ustring to_str(const T& t);
 
     constexpr bool ascii_iscntrl(char c) noexcept { return uint8_t(c) <= 31 || c == 127; }
     constexpr bool ascii_isdigit(char c) noexcept { return c >= '0' && c <= '9'; }
@@ -962,6 +1060,8 @@ namespace RS {
             return n;
         }
     }
+
+    inline Ustring dent(size_t depth) { return Ustring(4 * depth, ' '); }
 
     namespace {
 
@@ -1151,150 +1251,15 @@ namespace RS {
         return x;
     }
 
-    namespace RS_Detail {
-
-        template <typename R, typename T = Meta::RangeValue<R>>
-        struct RangeToString {
-            Ustring operator()(const R& r) const {
-                Ustring s = "[";
-                for (auto&& t: r) {
-                    s += to_str(t);
-                    s += ',';
-                }
-                if (s.size() > 1)
-                    s.pop_back();
-                s += ']';
-                return s;
-            }
-        };
-
-        template <typename R, typename K, typename T>
-        struct RangeToString<R, std::pair<K, T>> {
-            Ustring operator()(const R& r) const {
-                Ustring s = "{";
-                for (auto&& kv: r) {
-                    s += to_str(kv.first);
-                    s += ':';
-                    s += to_str(kv.second);
-                    s += ',';
-                }
-                if (s.size() > 1)
-                    s.pop_back();
-                s += '}';
-                return s;
-            }
-        };
-
-        template <typename R>
-        struct RangeToString<R, char> {
-            Ustring operator()(const R& r) const {
-                using std::begin;
-                using std::end;
-                return Ustring(begin(r), end(r));
-            }
-        };
-
-        template <typename T>
-        struct ObjectToStringCategory {
-            static constexpr char value =
-                std::is_integral<T>::value ? 'I' :
-                std::is_floating_point<T>::value ? 'F' :
-                std::is_convertible<T, std::string>::value ? 'S' :
-                std::is_base_of<std::exception, T>::value ? 'E' :
-                Meta::is_range<T> ? 'R' : 'X';
-        };
-
-        template <typename T, char C = ObjectToStringCategory<T>::value>
-        struct ObjectToString {
-            Ustring operator()(const T& t) const {
-                std::ostringstream out;
-                out << t;
-                return out.str();
-            }
-        };
-
-        template <> struct ObjectToString<Ustring> { Ustring operator()(const Ustring& t) const { return t; } };
-        template <> struct ObjectToString<Uview> { Ustring operator()(Uview t) const { return Ustring(t); } };
-        template <> struct ObjectToString<char*> { Ustring operator()(char* t) const { return t ? Ustring(t) : Ustring(); } };
-        template <> struct ObjectToString<const char*> { Ustring operator()(const char* t) const { return t ? Ustring(t) : Ustring(); } };
-        template <size_t N> struct ObjectToString<char[N], 'S'> { Ustring operator()(const char* t) const { return Ustring(t, N - 1); } };
-        template <size_t N> struct ObjectToString<const char[N], 'S'> { Ustring operator()(const char* t) const { return Ustring(t, N - 1); } };
-        template <> struct ObjectToString<char> { Ustring operator()(char t) const { return {t}; } };
-        template <> struct ObjectToString<bool> { Ustring operator()(bool t) const { return t ? "true" : "false"; } };
-        template <> struct ObjectToString<std::nullptr_t> { Ustring operator()(std::nullptr_t) const { return "null"; } };
-        template <typename T> struct ObjectToString<T, 'I'> { Ustring operator()(T t) const { return dec(t); } };
-        template <typename T> struct ObjectToString<T, 'F'> { Ustring operator()(T t) const { return fp_format(t); } };
-        template <typename T> struct ObjectToString<T, 'S'> { Ustring operator()(T t) const { return static_cast<Ustring>(*&t); } };
-        template <typename T> struct ObjectToString<T, 'E'> { Ustring operator()(T t) const { return t.what(); } };
-        template <typename T> struct ObjectToString<T, 'R'>: RangeToString<T> {};
-        template <typename T> struct ObjectToString<std::atomic<T>, 'X'> { Ustring operator()(const std::atomic<T>& t) const { return ObjectToString<T>()(t); } };
-
-        template <size_t Index, size_t Count, typename... TS>
-        struct TupleToString {
-            void operator()(Ustring& s, const std::tuple<TS...>& t) const {
-                s += to_str(std::get<Index>(t));
-                s += ',';
-                TupleToString<Index + 1, Count, TS...>()(s, t);
-            }
-        };
-
-        template <size_t Count, typename... TS>
-        struct TupleToString<Count, Count, TS...> {
-            void operator()(Ustring&, const std::tuple<TS...>&) const {}
-        };
-
-        template <typename... TS>
-        struct ObjectToString<std::tuple<TS...>, 'X'> {
-            Ustring operator()(const std::tuple<TS...>& t) const {
-                Ustring s = "(";
-                TupleToString<0, std::tuple_size<std::tuple<TS...>>::value, TS...>()(s, t);
-                s.back() = ')';
-                return s;
-            }
-        };
-
-        template <>
-        struct ObjectToString<std::tuple<>, 'X'> {
-            Ustring operator()(const std::tuple<>&) const {
-                return "()";
-            }
-        };
-
-        template <typename T1, typename T2>
-        struct ObjectToString<std::pair<T1, T2>, 'X'> {
-            Ustring operator()(const std::pair<T1, T2>& t) const {
-                return '(' + ObjectToString<T1>()(t.first) + ',' + ObjectToString<T2>()(t.second) + ')';
-            }
-        };
-
-        inline Ustring bytes_to_hex(const unsigned char* ptr, size_t len) {
-            static constexpr const char* digits = "0123456789abcdef";
-            Ustring s;
-            s.reserve(2 * len);
-            for (size_t i = 0; i < len; ++i) {
-                s += digits[ptr[i] >> 4];
-                s += digits[ptr[i] & 15];
-            }
-            return s;
-        }
-
-        template <size_t N>
-        struct ObjectToString<std::array<unsigned char, N>, 'R'> {
-            Ustring operator()(const std::array<unsigned char, N>& t) const {
-                return bytes_to_hex(t.data(), t.size());
-            }
-        };
-
-        template <>
-        struct ObjectToString<std::vector<unsigned char>, 'R'> {
-            Ustring operator()(const std::vector<unsigned char>& t) const {
-                return bytes_to_hex(t.data(), t.size());
-            }
-        };
-
+    inline Ustring unqualify(Uview str, Uview delims = ".:") {
+        if (delims.empty())
+            return Ustring(str);
+        size_t pos = str.find_last_of(delims);
+        if (pos == npos)
+            return Ustring(str);
+        else
+            return Ustring(str.substr(pos + 1, npos));
     }
-
-    template <typename T> inline Ustring to_str(const T& t) { return RS_Detail::ObjectToString<T>()(t); }
 
     template <typename Range>
     Ustring format_list(const Range& r, std::string_view prefix, std::string_view delimiter, std::string_view suffix) {
@@ -1335,6 +1300,281 @@ namespace RS {
     Ustring format_map(const Range& r) {
         return format_map(r, "{", ":", ",", "}");
     }
+
+    // Type names
+
+    inline std::string demangle(const std::string& name) {
+        #ifdef __GNUC__
+            auto mangled = name;
+            std::shared_ptr<char> demangled;
+            int status = 0;
+            for (;;) {
+                if (mangled.empty())
+                    return name;
+                demangled.reset(abi::__cxa_demangle(mangled.data(), nullptr, nullptr, &status), free);
+                if (status == -1)
+                    throw std::bad_alloc();
+                if (status == 0 && demangled)
+                    return demangled.get();
+                if (mangled[0] != '_')
+                    return name;
+                mangled.erase(0, 1);
+            }
+        #else
+            return name;
+        #endif
+    }
+
+    inline std::string type_name(const std::type_info& t) { return demangle(t.name()); }
+    inline std::string type_name(const std::type_index& t) { return demangle(t.name()); }
+    template <typename T> std::string type_name(const T& t) { return type_name(typeid(t)); }
+
+    template <typename T>
+    std::string type_name() {
+        static const std::string name = type_name(typeid(T));
+        return name;
+    }
+
+    // String conversions
+
+    namespace RS_Detail {
+
+        template <typename T> using InputOperatorArchetype = decltype(std::declval<std::istream&>() >> std::declval<T&>());
+        template <typename T> using OutputOperatorArchetype = decltype(std::declval<std::ostream&>() << std::declval<T>());
+        template <typename T> using StrMethodArchetype = decltype(std::declval<T>().str());
+        template <typename T> using AdlToStringArchetype = decltype(to_string(std::declval<T>()));
+        template <typename T> using StdToStringArchetype = decltype(std::to_string(std::declval<T>()));
+        template <typename T> using StrToEnumArchetype = decltype(str_to_enum(std::string_view(), std::declval<T&>()));
+
+        template <typename T> struct IsByteArray: public std::false_type {};
+        template <typename A> struct IsByteArray<std::vector<unsigned char, A>>: public std::true_type {};
+        template <size_t N> struct IsByteArray<std::array<unsigned char, N>>: public std::true_type {};
+
+        template <typename T> struct IsOptional: public std::false_type {};
+        template <typename T> struct IsOptional<std::optional<T>>: public std::true_type {};
+
+        template <typename T> struct IsSharedPtr: public std::false_type {};
+        template <typename T> struct IsSharedPtr<std::shared_ptr<T>>: public std::true_type {};
+
+        template <typename T> struct IsUniquePtr: public std::false_type {};
+        template <typename T, typename D> struct IsUniquePtr<std::unique_ptr<T, D>>: public std::true_type {};
+
+        template <typename T> struct IsPair: public std::false_type {};
+        template <typename T1, typename T2> struct IsPair<std::pair<T1, T2>>: public std::true_type {};
+
+        template <typename T> struct IsTuple: public std::false_type {};
+        template <typename... TS> struct IsTuple<std::tuple<TS...>>: public std::true_type {};
+
+        template <size_t I, typename... TS>
+        void append_tuple(const std::tuple<TS...>& t, std::string& s) {
+            if constexpr (I < sizeof...(TS)) {
+                s += to_str(std::get<I>(t));
+                if constexpr (I + 1 < sizeof...(TS)) {
+                    s += ',';
+                    append_tuple<I + 1>(t, s);
+                }
+            }
+        }
+
+    }
+
+    template <typename T>
+    bool from_str(std::string_view view, T& t) noexcept {
+        using namespace RS_Detail;
+        try {
+            if (view.empty()) {
+                t = T();
+                return true;
+            }
+            if constexpr (std::is_same_v<T, bool>) {
+                if (view == "true") {
+                    t = true;
+                    return true;
+                } else if (view == "false") {
+                    t = false;
+                    return true;
+                } else {
+                    intmax_t x = 0;
+                    if (! from_str(view, x))
+                        return false;
+                    t = bool(x);
+                    return true;
+                }
+            } else if constexpr (std::is_arithmetic_v<T>) {
+                std::string str(view);
+                auto begin = str.data(), end = begin + str.size();
+                int base = 10;
+                (void)base;
+                if constexpr (std::is_integral_v<T>)
+                    if (str.size() >= 2 && str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
+                        base = 16;
+                char* stop = nullptr;
+                T rc = T();
+                errno = 0;
+                if constexpr (std::is_floating_point_v<T>) {
+                    if constexpr (sizeof(T) <= sizeof(float))
+                        rc = T(std::strtof(begin, &stop));
+                    else if constexpr (sizeof(T) <= sizeof(double))
+                        rc = T(std::strtod(begin, &stop));
+                    else
+                        rc = T(std::strtold(begin, &stop));
+                } else if constexpr (std::is_signed_v<T>) {
+                    if constexpr (sizeof(T) <= sizeof(long))
+                        rc = T(std::strtol(begin, &stop, base));
+                    else
+                        rc = T(std::strtoll(begin, &stop, base));
+                } else {
+                    if constexpr (sizeof(T) <= sizeof(long))
+                        rc = T(std::strtoul(begin, &stop, base));
+                    else
+                        rc = T(std::strtoull(begin, &stop, base));
+                }
+                if (errno != 0 || stop != end)
+                    return false;
+                t = rc;
+                return true;
+            } else if constexpr (Meta::is_detected<StrToEnumArchetype, T>) {
+                return str_to_enum(view, t);
+            } else if constexpr (std::is_constructible_v<T, std::string_view>) {
+                t = static_cast<T>(view);
+                return true;
+            } else if constexpr (std::is_constructible_v<T, std::string>) {
+                std::string str(view);
+                t = static_cast<T>(str);
+                return true;
+            } else if constexpr (std::is_constructible_v<T, const char*>) {
+                std::string str(view);
+                t = static_cast<T>(str.data());
+                return true;
+            } else if constexpr (Meta::is_detected<InputOperatorArchetype, T>) {
+                std::string str(view);
+                std::istringstream in(str);
+                T temp;
+                in >> temp;
+                if (! in)
+                    return false;
+                t = std::move(temp);
+                return true;
+            } else {
+                return false;
+            }
+        }
+        catch (...) {
+            return false;
+        }
+    }
+
+    template <typename T>
+    T from_str(std::string_view view) {
+        T t;
+        if (! from_str(view, t))
+            throw std::invalid_argument("Invalid conversion: " + quote(view) + " => " + type_name<T>());
+        return t;
+    }
+
+    template <typename T>
+    std::string to_str(const T& t) {
+        using namespace RS_Detail;
+        using namespace std::literals;
+        if constexpr (std::is_same_v<T, bool>) {
+            return t ? "true"s : "false"s;
+        } else if constexpr (std::is_same_v<T, char>) {
+            return std::string(1, t);
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            return t;
+        } else if constexpr (std::is_same_v<T, std::string_view>) {
+            return std::string(t);
+        } else if constexpr (std::is_same_v<T, char*> || std::is_same_v<T, const char*>) {
+            return cstr(t);
+        } else if constexpr (IsByteArray<T>::value) {
+            static constexpr const char* digits = "0123456789abcdef";
+            size_t n = t.size();
+            std::string s;
+            s.reserve(2 * n);
+            for (size_t i = 0; i < n; ++i) {
+                s += digits[t[i] >> 4];
+                s += digits[t[i] & 15];
+                s += ' ';
+            }
+            if (! s.empty())
+                s.pop_back();
+            return s;
+        } else if constexpr (std::is_integral_v<T>) {
+            return std::to_string(t);
+        } else if constexpr (std::is_floating_point_v<T>) {
+            return fp_format(t);
+        } else if constexpr (Meta::is_detected_convertible<std::string, StrMethodArchetype, T>) {
+            return t.str();
+        } else if constexpr (Meta::is_detected_convertible<std::string, AdlToStringArchetype, T>) {
+            return to_string(t);
+        } else if constexpr (Meta::is_detected_convertible<std::string, StdToStringArchetype, T>) {
+            return std::to_string(t);
+        } else if constexpr (std::is_constructible_v<std::string, T>) {
+            return static_cast<std::string>(t);
+        } else if constexpr (std::is_constructible_v<std::string_view, T>) {
+            return std::string(static_cast<std::string_view>(t));
+        } else if constexpr (std::is_constructible_v<const char*, T>) {
+            return cstr(static_cast<const char*>(t));
+        } else if constexpr (std::is_base_of_v<std::exception, T>) {
+            return t.what();
+        } else if constexpr (IsOptional<T>::value || IsSharedPtr<T>::value || IsUniquePtr<T>::value) {
+            if (t)
+                return to_str(*t);
+            else
+                return "null"s;
+        } else if constexpr (IsPair<T>::value) {
+            std::string s = "(";
+            s += to_str(t.first);
+            s += ',';
+            s += to_str(t.second);
+            s += ')';
+            return s;
+        } else if constexpr (IsTuple<T>::value) {
+            std::string s = "(";
+            append_tuple<0>(t, s);
+            s += ')';
+            return s;
+        } else if constexpr (Meta::is_range<T>) {
+            if constexpr (IsPair<Meta::RangeValue<T>>::value) {
+                std::string s = "{";
+                for (auto& [k,v]: t) {
+                    s += to_str(k);
+                    s += ':';
+                    s += to_str(v);
+                    s += ',';
+                }
+                if (s.size() > 1)
+                    s.pop_back();
+                s += '}';
+                return s;
+            } else {
+                std::string s = "[";
+                for (auto& x: t) {
+                    s += to_str(x);
+                    s += ',';
+                }
+                if (s.size() > 1)
+                    s.pop_back();
+                s += ']';
+                return s;
+            }
+        } else if constexpr (Meta::is_detected<OutputOperatorArchetype, T>) {
+            std::ostringstream out;
+            out << t;
+            return out.str();
+        } else {
+            return type_name(t);
+        }
+    }
+
+    template <typename T>
+    struct FromStr {
+        T operator()(std::string_view s) const { using RS::from_str; return from_str<T>(s); }
+    };
+
+    struct ToStr {
+        template <typename T> std::string operator()(const T& t) const { using RS::to_str; return to_str(t); }
+    };
 
     // Version numbers
 
